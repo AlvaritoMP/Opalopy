@@ -1,0 +1,5 @@
+{
+  "name": "ATS Pro - Applicant Tracking System",
+  "description": "An intuitive Applicant Tracking System (ATS) to manage recruitment processes, track candidates through customizable stages, and visualize key hiring metrics on a comprehensive dashboard. Built with React and Tailwind CSS.",
+  "requestFramePermissions": []
+}
