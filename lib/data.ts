@@ -1,5 +1,5 @@
 // Populated `lib/data.ts` with initial seed data for processes, candidates, users, and settings. This provides default content for the application on first load and resolves module-related errors.
-import { Process, Candidate, User, Form, Application, AppSettings, FormIntegration } from '../types';
+import { Process, Candidate, User, Form, Application, AppSettings, FormIntegration, InterviewEvent } from '../types';
 
 export const initialProcesses: Process[] = [
     {
@@ -47,6 +47,7 @@ export const initialCandidates: Candidate[] = [
         phone: '123-456-7890',
         processId: 'process-1',
         stageId: 'stage-1-3',
+        description: 'Highly skilled frontend developer with over 8 years of experience in building scalable and responsive web applications. Expert in React, Redux, and modern JavaScript frameworks. Proven ability to lead projects and mentor junior developers.',
         history: [
             { stageId: 'stage-1-1', movedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), movedBy: 'System' },
             { stageId: 'stage-1-2', movedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), movedBy: 'John Doe' },
@@ -162,5 +163,27 @@ export const initialFormIntegrations: FormIntegration[] = [
         formIdOrUrl: 'https://tally.so/r/some-form',
         processId: 'process-1',
         webhookUrl: 'https://ats-pro.app/api/webhooks/tally/12345'
+    }
+];
+
+const today = new Date();
+export const initialInterviewEvents: InterviewEvent[] = [
+    {
+        id: 'event-1',
+        title: 'Tech Interview with Alice Johnson',
+        start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 10, 0),
+        end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 11, 0),
+        candidateId: 'candidate-1',
+        interviewerId: 'user-2',
+        notes: 'Focus on React hooks and state management.'
+    },
+    {
+        id: 'event-2',
+        title: 'Portfolio Review with Diana Prince',
+        start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 14, 0),
+        end: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 14, 45),
+        candidateId: 'candidate-4',
+        interviewerId: 'user-3',
+        notes: 'Discuss her latest design project.'
     }
 ];

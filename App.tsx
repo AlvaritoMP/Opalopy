@@ -6,13 +6,14 @@ import { ReportsView } from './components/ReportsView';
 import { Users } from './components/Users';
 import { Settings } from './components/Settings';
 import { Forms } from './components/Forms';
+import { CalendarView } from './components/CalendarView';
 import { Spinner } from './components/Spinner';
-import { Candidate, Process, User, Form, Application, AppSettings, FormIntegration } from './types';
+import { Candidate, Process, User, Form, Application, AppSettings, FormIntegration, InterviewEvent } from './types';
 import { api } from './lib/api';
-import { Briefcase, LayoutGrid, BarChart2, Users as UsersIcon, Settings as SettingsIcon, FileText } from 'lucide-react';
+import { Briefcase, LayoutGrid, BarChart2, Users as UsersIcon, Settings as SettingsIcon, FileText, Calendar } from 'lucide-react';
 
 
-type View = 'dashboard' | 'processes' | 'process-view' | 'reports' | 'users' | 'settings' | 'forms';
+type View = 'dashboard' | 'processes' | 'process-view' | 'reports' | 'users' | 'settings' | 'forms' | 'calendar';
 
 interface AppState {
     loading: boolean;
@@ -24,13 +25,14 @@ interface AppState {
     forms: Form[];
     applications: Application[];
     formIntegrations: FormIntegration[];
+    interviewEvents: InterviewEvent[];
     settings: AppSettings | null;
     currentUser: User | null;
 }
 
 type Action =
     | { type: 'SET_LOADING'; payload: boolean }
-    | { type: 'SET_DATA'; payload: { processes: Process[]; candidates: Candidate[]; users: User[]; forms: Form[]; applications: Application[]; formIntegrations: FormIntegration[]; settings: AppSettings | null } }
+    | { type: 'SET_DATA'; payload: { processes: Process[]; candidates: Candidate[]; users: User[]; forms: Form[]; applications: Application[]; formIntegrations: FormIntegration[]; interviewEvents: InterviewEvent[]; settings: AppSettings | null } }
     | { type: 'SET_VIEW'; payload: { view: View; processId?: string | null } }
     | { type: 'ADD_PROCESS'; payload: Process }
     | { type: 'UPDATE_PROCESS'; payload: Process }
@@ -42,7 +44,10 @@ type Action =
     | { type: 'DELETE_FORM_INTEGRATION'; payload: string }
     | { type: 'ADD_USER'; payload: User }
     | { type: 'UPDATE_USER'; payload: User }
-    | { type: 'DELETE_USER'; payload: string };
+    | { type: 'DELETE_USER'; payload: string }
+    | { type: 'ADD_INTERVIEW_EVENT'; payload: InterviewEvent }
+    | { type: 'UPDATE_INTERVIEW_EVENT'; payload: InterviewEvent }
+    | { type: 'DELETE_INTERVIEW_EVENT'; payload: string };
 
 
 const initialState: AppState = {
@@ -55,6 +60,7 @@ const initialState: AppState = {
     forms: [],
     applications: [],
     formIntegrations: [],
+    interviewEvents: [],
     settings: null,
     currentUser: { id: 'user-1', name: 'Super Admin', email: 'admin@ats.com', role: 'admin' }, // mock current user
 };
@@ -99,6 +105,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, users: state.users.map(u => u.id === action.payload.id ? action.payload : u) };
         case 'DELETE_USER':
             return { ...state, users: state.users.filter(u => u.id !== action.payload) };
+        case 'ADD_INTERVIEW_EVENT':
+            return { ...state, interviewEvents: [...state.interviewEvents, action.payload] };
+        case 'UPDATE_INTERVIEW_EVENT':
+            return { ...state, interviewEvents: state.interviewEvents.map(e => e.id === action.payload.id ? action.payload : e) };
+        case 'DELETE_INTERVIEW_EVENT':
+            return { ...state, interviewEvents: state.interviewEvents.filter(e => e.id !== action.payload) };
         default:
             return state;
     }
@@ -119,6 +131,9 @@ interface AppContextType {
         addUser: (userData: Omit<User, 'id'>) => Promise<void>;
         updateUser: (user: User) => Promise<void>;
         deleteUser: (userId: string) => Promise<void>;
+        addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
+        updateInterviewEvent: (event: InterviewEvent) => Promise<void>;
+        deleteInterviewEvent: (eventId: string) => Promise<void>;
     };
     getLabel: (key: string, defaultLabel: string) => string;
 }
@@ -174,6 +189,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <nav className="flex-1 p-4 space-y-2">
                     <NavLink view="dashboard" labelKey="sidebar_dashboard" defaultLabel="Dashboard" currentView={state.view} setView={actions.setView} icon={LayoutGrid} />
                     <NavLink view="processes" labelKey="sidebar_processes" defaultLabel="Processes" currentView={state.view} setView={actions.setView} icon={Briefcase} />
+                    <NavLink view="calendar" labelKey="sidebar_calendar" defaultLabel="Calendar" currentView={state.view} setView={actions.setView} icon={Calendar} />
                     <NavLink view="reports" labelKey="sidebar_reports" defaultLabel="Reports" currentView={state.view} setView={actions.setView} icon={BarChart2} />
                     <NavLink view="forms" labelKey="sidebar_forms" defaultLabel="Forms" currentView={state.view} setView={actions.setView} icon={FileText} />
                     {isAdmin && <NavLink view="users" labelKey="sidebar_users" defaultLabel="Users" currentView={state.view} setView={actions.setView} icon={UsersIcon} />}
@@ -196,7 +212,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     useEffect(() => {
         const loadData = async () => {
             dispatch({ type: 'SET_LOADING', payload: true });
-            const [processes, candidates, users, forms, applications, formIntegrations, settings] = await Promise.all([
+            const [processes, candidates, users, forms, applications, formIntegrations, settings, interviewEvents] = await Promise.all([
                 api.getProcesses(),
                 api.getCandidates(),
                 api.getUsers(),
@@ -204,8 +220,9 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 api.getApplications(),
                 api.getFormIntegrations(),
                 api.getSettings(),
+                api.getInterviewEvents(),
             ]);
-            dispatch({ type: 'SET_DATA', payload: { processes, candidates, users, forms, applications, formIntegrations, settings } });
+            dispatch({ type: 'SET_DATA', payload: { processes, candidates, users, forms, applications, formIntegrations, settings, interviewEvents } });
         };
         loadData();
     }, []);
@@ -272,6 +289,18 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             await api.deleteUser(userId);
             dispatch({ type: 'DELETE_USER', payload: userId });
         },
+        addInterviewEvent: async (eventData: Omit<InterviewEvent, 'id'>) => {
+            const newEvent = await api.addInterviewEvent(eventData);
+            dispatch({ type: 'ADD_INTERVIEW_EVENT', payload: newEvent });
+        },
+        updateInterviewEvent: async (event: InterviewEvent) => {
+            const updatedEvent = await api.updateInterviewEvent(event);
+            dispatch({ type: 'UPDATE_INTERVIEW_EVENT', payload: updatedEvent });
+        },
+        deleteInterviewEvent: async (eventId: string) => {
+            await api.deleteInterviewEvent(eventId);
+            dispatch({ type: 'DELETE_INTERVIEW_EVENT', payload: eventId });
+        },
     }), [state.candidates, state.currentUser]);
     
     return (
@@ -312,6 +341,8 @@ const Main: React.FC = () => {
                 return <Settings />;
             case 'forms':
                 return <Forms />;
+            case 'calendar':
+                return <CalendarView />;
             default:
                 return <Dashboard />;
         }

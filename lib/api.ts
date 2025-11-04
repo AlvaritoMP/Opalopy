@@ -1,10 +1,18 @@
 
-import { Process, Candidate, User, Form, Application, AppSettings, FormIntegration, UserRole } from '../types';
-import { initialProcesses, initialCandidates, initialUsers, initialForms, initialApplications, initialSettings, initialFormIntegrations } from './data';
+import { Process, Candidate, User, Form, Application, AppSettings, FormIntegration, UserRole, InterviewEvent } from '../types';
+import { initialProcesses, initialCandidates, initialUsers, initialForms, initialApplications, initialSettings, initialFormIntegrations, initialInterviewEvents } from './data';
 
 const getFromStorage = <T>(key: string, fallback: T): T => {
     try {
         const item = localStorage.getItem(key);
+        // Date strings need to be converted back to Date objects
+        if (item && (key === 'interview_events' || key === 'candidates')) {
+             const data = JSON.parse(item);
+             if (key === 'interview_events') {
+                return data.map((event: any) => ({...event, start: new Date(event.start), end: new Date(event.end)})) as T;
+             }
+             return data;
+        }
         return item ? JSON.parse(item) : fallback;
     } catch (e) {
         console.error(`Failed to parse ${key} from localStorage`, e);
@@ -144,5 +152,31 @@ export const api = {
         let integrations = await api.getFormIntegrations();
         integrations = integrations.filter(i => i.id !== integrationId);
         saveToStorage('form_integrations', integrations);
+    },
+
+    // Interview Events
+    getInterviewEvents: async (): Promise<InterviewEvent[]> => {
+        await delay(200);
+        return getFromStorage('interview_events', initialInterviewEvents);
+    },
+    addInterviewEvent: async (eventData: Omit<InterviewEvent, 'id'>): Promise<InterviewEvent> => {
+        await delay(300);
+        const events = await api.getInterviewEvents();
+        const newEvent: InterviewEvent = { ...eventData, id: `event-${Date.now()}` };
+        saveToStorage('interview_events', [...events, newEvent]);
+        return newEvent;
+    },
+    updateInterviewEvent: async (updatedEvent: InterviewEvent): Promise<InterviewEvent> => {
+        await delay(300);
+        let events = await api.getInterviewEvents();
+        events = events.map(e => e.id === updatedEvent.id ? updatedEvent : e);
+        saveToStorage('interview_events', events);
+        return updatedEvent;
+    },
+    deleteInterviewEvent: async (eventId: string): Promise<void> => {
+        await delay(300);
+        let events = await api.getInterviewEvents();
+        events = events.filter(e => e.id !== eventId);
+        saveToStorage('interview_events', events);
     },
 };

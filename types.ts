@@ -48,6 +48,7 @@ export interface Candidate {
     avatarUrl?: string;
     processId: string;
     stageId: string;
+    description?: string;
     history: CandidateHistory[];
     attachments: Attachment[];
     notes?: string;
@@ -100,4 +101,14 @@ export interface FormIntegration {
     formIdOrUrl: string;
     processId: string;
     webhookUrl: string;
+}
+
+export interface InterviewEvent {
+    id: string;
+    title: string;
+    start: Date;
+    end: Date;
+    candidateId: string;
+    interviewerId: string;
+    notes?: string;
 }

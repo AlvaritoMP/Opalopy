@@ -23,6 +23,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [avatarUrl, setAvatarUrl] = useState('');
+    const [description, setDescription] = useState('');
     const [source, setSource] = useState<Candidate['source']>('Other');
     const [salaryExpectation, setSalaryExpectation] = useState('');
     const [age, setAge] = useState<number | ''>('');
@@ -47,6 +48,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
             email,
             phone,
             avatarUrl,
+            description,
             processId: process.id,
             stageId: firstStageId,
             attachments,
@@ -113,6 +115,9 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
 
                         <div><label className="block text-sm font-medium text-gray-700">Full Name</label><input type="text" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Email Address</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 block w-full input"/></div>
+                        
+                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Summary / Description</label><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} className="mt-1 block w-full input" /></div>
+
                         <div><label className="block text-sm font-medium text-gray-700">Phone Number</label><input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Age</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" value={dni} onChange={e => setDni(e.target.value)} className="mt-1 block w-full input"/></div>
