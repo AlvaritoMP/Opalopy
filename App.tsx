@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useReducer, useMemo } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { ProcessList } from './components/ProcessList';
@@ -121,6 +120,7 @@ interface AppContextType {
         updateUser: (user: User) => Promise<void>;
         deleteUser: (userId: string) => Promise<void>;
     };
+    getLabel: (key: string, defaultLabel: string) => string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -135,43 +135,51 @@ export const useAppState = () => {
 
 const NavLink: React.FC<{
     view: View;
+    labelKey: string;
+    defaultLabel: string;
     currentView: View;
     setView: (view: View, processId?: string) => void;
     icon: React.ElementType;
-    children: React.ReactNode;
-}> = ({ view, currentView, setView, icon: Icon, children }) => (
-    <button
-        onClick={() => setView(view)}
-        className={`flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
-            currentView === view
-                ? 'bg-primary-100 text-primary-700'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-        }`}
-    >
-        <Icon className="w-5 h-5 mr-3" />
-        {children}
-    </button>
-);
+}> = ({ view, labelKey, defaultLabel, currentView, setView, icon: Icon }) => {
+    const { getLabel } = useAppState();
+    return (
+        <button
+            onClick={() => setView(view)}
+            className={`flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
+                currentView === view
+                    ? 'bg-primary-100 text-primary-700'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            }`}
+        >
+            <Icon className="w-5 h-5 mr-3" />
+            {getLabel(labelKey, defaultLabel)}
+        </button>
+    );
+}
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const isAdmin = state.currentUser?.role === 'admin';
 
     return (
         <div className="flex h-screen bg-gray-100 font-sans">
             <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-                <div className="h-16 flex items-center justify-center border-b">
-                    <h1 className="text-xl font-bold text-primary-600">ATS Pro</h1>
+                <div className="h-16 flex items-center justify-center border-b px-4">
+                     {state.settings?.logoUrl ? (
+                        <img src={state.settings.logoUrl} alt="App Logo" className="h-8 object-contain" />
+                    ) : (
+                        <h1 className="text-xl font-bold text-primary-600">{state.settings?.appName || 'ATS Pro'}</h1>
+                    )}
                 </div>
                 <nav className="flex-1 p-4 space-y-2">
-                    <NavLink view="dashboard" currentView={state.view} setView={actions.setView} icon={LayoutGrid}>Dashboard</NavLink>
-                    <NavLink view="processes" currentView={state.view} setView={actions.setView} icon={Briefcase}>Processes</NavLink>
-                    <NavLink view="reports" currentView={state.view} setView={actions.setView} icon={BarChart2}>Reports</NavLink>
-                    <NavLink view="forms" currentView={state.view} setView={actions.setView} icon={FileText}>Forms</NavLink>
-                    {isAdmin && <NavLink view="users" currentView={state.view} setView={actions.setView} icon={UsersIcon}>Users</NavLink>}
+                    <NavLink view="dashboard" labelKey="sidebar_dashboard" defaultLabel="Dashboard" currentView={state.view} setView={actions.setView} icon={LayoutGrid} />
+                    <NavLink view="processes" labelKey="sidebar_processes" defaultLabel="Processes" currentView={state.view} setView={actions.setView} icon={Briefcase} />
+                    <NavLink view="reports" labelKey="sidebar_reports" defaultLabel="Reports" currentView={state.view} setView={actions.setView} icon={BarChart2} />
+                    <NavLink view="forms" labelKey="sidebar_forms" defaultLabel="Forms" currentView={state.view} setView={actions.setView} icon={FileText} />
+                    {isAdmin && <NavLink view="users" labelKey="sidebar_users" defaultLabel="Users" currentView={state.view} setView={actions.setView} icon={UsersIcon} />}
                 </nav>
                  <div className="p-4 border-t">
-                    {isAdmin && <NavLink view="settings" currentView={state.view} setView={actions.setView} icon={SettingsIcon}>Settings</NavLink>}
+                    {isAdmin && <NavLink view="settings" labelKey="sidebar_settings" defaultLabel="Settings" currentView={state.view} setView={actions.setView} icon={SettingsIcon} />}
                 </div>
             </aside>
             <main className="flex-1 overflow-y-auto">
@@ -201,6 +209,11 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         };
         loadData();
     }, []);
+    
+    const getLabel = (key: string, defaultLabel: string): string => {
+        return state.settings?.customLabels?.[key] || defaultLabel;
+    };
+
 
     const actions = useMemo(() => ({
         setView: (view: View, processId: string | null = null) => {
@@ -262,7 +275,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }), [state.candidates, state.currentUser]);
     
     return (
-        <AppContext.Provider value={{ state, actions }}>
+        <AppContext.Provider value={{ state, actions, getLabel }}>
             {children}
         </AppContext.Provider>
     );

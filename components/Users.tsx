@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { User, UserRole } from '../types';
@@ -6,7 +5,7 @@ import { UserEditorModal } from './UserEditorModal';
 import { UserPlus, Edit, Trash2 } from 'lucide-react';
 
 export const Users: React.FC = () => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
 
@@ -45,7 +44,7 @@ export const Users: React.FC = () => {
     return (
         <div className="p-8">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">User Management</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_users', 'User Management')}</h1>
                 {isAdmin && (
                     <button
                         onClick={handleAddNew}

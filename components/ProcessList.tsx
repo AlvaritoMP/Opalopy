@@ -75,7 +75,7 @@ const ProcessCard: React.FC<{
 
 
 export const ProcessList: React.FC = () => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingProcess, setEditingProcess] = useState<Process | null>(null);
     
@@ -100,7 +100,7 @@ export const ProcessList: React.FC = () => {
     return (
         <div className="p-8">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">Hiring Processes</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_processes', 'Hiring Processes')}</h1>
                 {canManageProcesses && (
                     <button
                         onClick={handleAddNew}

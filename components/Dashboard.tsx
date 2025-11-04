@@ -36,7 +36,7 @@ const ChartContainer: React.FC<{title: string, children: React.ReactNode, hasDat
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
 
 export const Dashboard: React.FC = () => {
-    const { state } = useAppState();
+    const { state, getLabel } = useAppState();
     const { processes, candidates: allCandidates, applications } = state;
 
     const [processFilter, setProcessFilter] = useState<string>('all');
@@ -108,7 +108,7 @@ export const Dashboard: React.FC = () => {
     return (
         <div className="p-8 bg-gray-50/50 min-h-full">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Dashboard')}</h1>
             </div>
             
             {/* Filters */}

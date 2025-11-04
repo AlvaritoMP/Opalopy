@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { Plus, Trash2, Link as LinkIcon, ExternalLink } from 'lucide-react';
@@ -26,7 +25,7 @@ const PlatformLogo: React.FC<{platform: string}> = ({platform}) => {
 
 
 export const Forms: React.FC = () => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     
     const handleDelete = (formId: string) => {
@@ -38,7 +37,7 @@ export const Forms: React.FC = () => {
     return (
         <div className="p-8">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">Form Integrations</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_forms', 'Form Integrations')}</h1>
                 <button
                     onClick={() => setIsEditorOpen(true)}
                     className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"

@@ -1,14 +1,23 @@
-
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppState } from '../App';
 import { AppSettings } from '../types';
-import { Save, Database, HardDrive, Globe } from 'lucide-react';
+import { Save, Database, HardDrive, Globe, Brush, Type } from 'lucide-react';
+
+const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
+    });
+};
+
 
 export const Settings: React.FC = () => {
     const { state, actions } = useAppState();
     const [settings, setSettings] = useState<AppSettings | null>(state.settings);
     const [isSaving, setIsSaving] = useState(false);
+    const logoInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setSettings(state.settings);
@@ -45,6 +54,26 @@ export const Settings: React.FC = () => {
             [e.target.name]: e.target.value
         });
     };
+    
+    const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!settings) return;
+        setSettings({
+            ...settings,
+            customLabels: {
+                ...settings.customLabels,
+                [e.target.name]: e.target.value,
+            }
+        });
+    };
+    
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+            const dataUrl = await fileToBase64(file);
+            if (!settings) return;
+            setSettings({ ...settings, logoUrl: dataUrl });
+        }
+    };
 
     const handleSave = async () => {
         if (!settings) return;
@@ -67,6 +96,51 @@ export const Settings: React.FC = () => {
                 </button>
             </div>
             <div className="space-y-8 max-w-4xl">
+                 {/* Branding Settings */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h2 className="text-xl font-semibold mb-1 flex items-center"><Brush className="mr-2"/> Branding</h2>
+                    <p className="text-sm text-gray-500 mb-6">Customize the look and feel of your application.</p>
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="appName" className="block text-sm font-medium text-gray-700">Application Name</label>
+                            <input type="text" id="appName" name="appName" value={settings.appName || ''} onChange={handleSettingChange} className="mt-1 block w-full max-w-xs input"/>
+                        </div>
+                         <div>
+                            <label className="block text-sm font-medium text-gray-700">Company Logo</label>
+                            <div className="mt-1 flex items-center space-x-4">
+                                {settings.logoUrl && <img src={settings.logoUrl} alt="Logo preview" className="h-10 object-contain rounded-md bg-gray-100 p-1" />}
+                                <button type="button" onClick={() => logoInputRef.current?.click()} className="px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">{settings.logoUrl ? 'Change Logo' : 'Upload Logo'}</button>
+                                <input type="file" accept="image/*" ref={logoInputRef} onChange={handleLogoUpload} className="hidden" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* UI Labels Settings */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h2 className="text-xl font-semibold mb-1 flex items-center"><Type className="mr-2"/> UI Labels</h2>
+                    <p className="text-sm text-gray-500 mb-6">Customize the text for main sections and titles.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <div>
+                            <label htmlFor="sidebar_dashboard" className="block text-sm font-medium text-gray-700">Sidebar: Dashboard</label>
+                            <input type="text" id="sidebar_dashboard" name="sidebar_dashboard" value={settings.customLabels?.sidebar_dashboard || ''} onChange={handleLabelChange} placeholder="Dashboard" className="mt-1 block w-full input"/>
+                        </div>
+                         <div>
+                            <label htmlFor="sidebar_processes" className="block text-sm font-medium text-gray-700">Sidebar: Processes</label>
+                            <input type="text" id="sidebar_processes" name="sidebar_processes" value={settings.customLabels?.sidebar_processes || ''} onChange={handleLabelChange} placeholder="Processes" className="mt-1 block w-full input"/>
+                        </div>
+                        <div>
+                            <label htmlFor="modal_add_candidate" className="block text-sm font-medium text-gray-700">Modal: Add Candidate</label>
+                            <input type="text" id="modal_add_candidate" name="modal_add_candidate" value={settings.customLabels?.modal_add_candidate || ''} onChange={handleLabelChange} placeholder="Add Candidate to..." className="mt-1 block w-full input"/>
+                        </div>
+                        <div>
+                            <label htmlFor="modal_edit_process" className="block text-sm font-medium text-gray-700">Modal: Edit Process</label>
+                            <input type="text" id="modal_edit_process" name="modal_edit_process" value={settings.customLabels?.modal_edit_process || ''} onChange={handleLabelChange} placeholder="Edit Process" className="mt-1 block w-full input"/>
+                        </div>
+                    </div>
+                </div>
+
+
                 {/* Localization Settings */}
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                     <h2 className="text-xl font-semibold mb-1 flex items-center"><Globe className="mr-2"/> Localization</h2>
@@ -81,7 +155,7 @@ export const Settings: React.FC = () => {
                                 value={settings.currencySymbol || ''} 
                                 onChange={handleSettingChange} 
                                 placeholder="$" 
-                                className="mt-1 block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500" 
+                                className="mt-1 block w-full max-w-xs input" 
                             />
                         </div>
                     </div>
@@ -98,11 +172,11 @@ export const Settings: React.FC = () => {
                         </div>
                         <div>
                             <label htmlFor="apiUrl" className="block text-sm font-medium text-gray-700">API URL</label>
-                            <input type="text" id="apiUrl" name="apiUrl" value={settings.database.apiUrl} onChange={handleDbChange} placeholder="https://api.baserow.io" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                            <input type="text" id="apiUrl" name="apiUrl" value={settings.database.apiUrl} onChange={handleDbChange} placeholder="https://api.baserow.io" className="mt-1 block w-full input" />
                         </div>
                         <div>
                             <label htmlFor="apiToken" className="block text-sm font-medium text-gray-700">API Token</label>
-                            <input type="password" id="apiToken" name="apiToken" value={settings.database.apiToken} onChange={handleDbChange} placeholder="••••••••••••••••••••" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                            <input type="password" id="apiToken" name="apiToken" value={settings.database.apiToken} onChange={handleDbChange} placeholder="••••••••••••••••••••" className="mt-1 block w-full input" />
                         </div>
                     </div>
                 </div>
@@ -130,6 +204,7 @@ export const Settings: React.FC = () => {
                     </div>
                 </div>
             </div>
+            <style>{`.input { padding: 0.5rem 0.75rem; border: 1px solid #D1D5DB; border-radius: 0.375rem; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }`}</style>
         </div>
     );
 };

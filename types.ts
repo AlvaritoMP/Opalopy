@@ -1,4 +1,3 @@
-// Populated the `types.ts` file with type definitions based on their usage across the application. This resolves multiple "Cannot find name" and "is not a module" errors.
 export type UserRole = 'admin' | 'recruiter' | 'viewer' | 'client';
 
 export interface User {
@@ -89,6 +88,9 @@ export interface AppSettings {
         connected: boolean;
     };
     currencySymbol?: string;
+    appName?: string;
+    logoUrl?: string;
+    customLabels?: Record<string, string>;
 }
 
 export interface FormIntegration {

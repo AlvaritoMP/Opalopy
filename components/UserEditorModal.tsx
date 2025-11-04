@@ -9,7 +9,7 @@ interface UserEditorModalProps {
 }
 
 export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose }) => {
-    const { actions } = useAppState();
+    const { actions, getLabel } = useAppState();
     const [name, setName] = useState(user?.name || '');
     const [email, setEmail] = useState(user?.email || '');
     const [role, setRole] = useState<UserRole>(user?.role || 'viewer');
@@ -38,7 +38,7 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-gray-800">{user ? 'Edit User' : 'Add New User'}</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{user ? getLabel('modal_edit_user', 'Edit User') : getLabel('modal_add_user', 'Add New User')}</h2>
                         <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
                             <X className="w-6 h-6 text-gray-600" />
                         </button>

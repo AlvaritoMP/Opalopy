@@ -19,7 +19,7 @@ const candidateReportOptions: { key: keyof Candidate | 'process' | 'stage'; labe
 
 
 export const ReportsView: React.FC = () => {
-    const { state } = useAppState();
+    const { state, getLabel } = useAppState();
     const { processes, candidates } = state;
     const [selectedColumns, setSelectedColumns] = useState<string[]>(['name', 'process', 'stage', 'email']);
     const [isColumnSelectorOpen, setIsColumnSelectorOpen] = useState(false);
@@ -68,7 +68,7 @@ export const ReportsView: React.FC = () => {
 
     return (
         <div className="p-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-8">Reports</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-8">{getLabel('sidebar_reports', 'Reports')}</h1>
 
             <div className="space-y-8">
                 {/* Candidates Report */}

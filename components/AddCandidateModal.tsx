@@ -18,7 +18,7 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, onClose }) => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
@@ -92,7 +92,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-gray-800">Add Candidate to {process.title}</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{getLabel('modal_add_candidate', 'Add Candidate to')} {process.title}</h2>
                         <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
                     </div>
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">

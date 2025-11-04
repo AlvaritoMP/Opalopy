@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { FormIntegration, Process } from '../types';
@@ -10,7 +9,7 @@ interface FormIntegrationModalProps {
 }
 
 export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ onClose }) => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [platform, setPlatform] = useState<'Tally' | 'Google Forms' | 'Microsoft Forms'>('Tally');
     const [formName, setFormName] = useState('');
     const [formIdOrUrl, setFormIdOrUrl] = useState('');
@@ -63,7 +62,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ onClose }
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-gray-800">New Form Integration</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{getLabel('modal_new_form_integration', 'New Form Integration')}</h2>
                         <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
                             <X className="w-6 h-6 text-gray-600" />
                         </button>

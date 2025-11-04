@@ -149,6 +149,9 @@ export const initialSettings: AppSettings = {
         connected: false,
     },
     currencySymbol: '$',
+    appName: 'ATS Pro',
+    logoUrl: '',
+    customLabels: {},
 };
 
 export const initialFormIntegrations: FormIntegration[] = [

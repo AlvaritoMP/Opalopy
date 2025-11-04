@@ -18,7 +18,7 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process, onClose }) => {
-    const { state, actions } = useAppState();
+    const { state, actions, getLabel } = useAppState();
     const [title, setTitle] = useState(process?.title || '');
     const [description, setDescription] = useState(process?.description || '');
     const [salaryRange, setSalaryRange] = useState(process?.salaryRange || '');
@@ -97,7 +97,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl">
                 <form onSubmit={handleSubmit}>
-                    <div className="p-6 border-b flex justify-between items-center"><h2 className="text-2xl font-bold text-gray-800">{process ? 'Edit Process' : 'Create New Process'}</h2><button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button></div>
+                    <div className="p-6 border-b flex justify-between items-center"><h2 className="text-2xl font-bold text-gray-800">{process ? getLabel('modal_edit_process', 'Edit Process') : getLabel('modal_create_process', 'Create New Process')}</h2><button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button></div>
                     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
                         {/* Process Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
