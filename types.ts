@@ -1,28 +1,34 @@
-
 export interface Stage {
     id: string;
     name: string;
-}
-
-export interface Process {
-    id:string;
-    title: string;
-    description: string;
-    stages: Stage[];
-}
-
-export interface CandidateHistory {
-    stageId: string;
-    movedAt: string; // ISO date string
-    movedBy: string; // User name
 }
 
 export interface Attachment {
     id: string;
     name: string;
     url: string;
-    type: string; // e.g., 'application/pdf', 'image/png'
-    size: number; // in bytes
+    type: string;
+    size: number;
+}
+
+export interface Process {
+    id: string;
+    title: string;
+    description: string;
+    stages: Stage[];
+    salaryRange?: string;
+    experienceLevel?: string;
+    seniority?: string;
+    startDate?: string;
+    endDate?: string;
+    flyerUrl?: string;
+    attachments: Attachment[];
+}
+
+export interface StageHistory {
+    stageId: string;
+    movedAt: string;
+    movedBy: string;
 }
 
 export interface Candidate {
@@ -33,9 +39,9 @@ export interface Candidate {
     avatarUrl?: string;
     processId: string;
     stageId: string;
-    history: CandidateHistory[];
-    notes?: string;
     attachments: Attachment[];
+    notes?: string;
+    history: StageHistory[];
 }
 
 export type UserRole = 'admin' | 'recruiter' | 'viewer';
@@ -47,34 +53,29 @@ export interface User {
     role: UserRole;
 }
 
+export interface Form {
+    id: string;
+    title: string;
+    fields: { id: string; label: string; type: string }[];
+}
+
+export interface Application {
+    id: string;
+    candidateId: string;
+    formId: string;
+    submittedAt: string;
+    answers: { fieldId: string; answer: any }[];
+}
+
 export interface AppSettings {
     database: {
-        type: 'baserow' | 'mock';
         apiUrl: string;
         apiToken: string;
     };
     fileStorage: {
-        type: 'gdrive' | 'local';
+        provider: 'Google Drive';
         connected: boolean;
     };
-}
-
-export type FormFieldType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'file';
-
-export interface FormField {
-    id: string;
-    label: string;
-    type: FormFieldType;
-    options?: string[];
-    required: boolean;
-}
-
-export interface Form {
-    id: string;
-    title: string;
-    description: string;
-    fields: FormField[];
-    processId: string; // Link form to a process
 }
 
 export interface FormIntegration {
@@ -84,13 +85,4 @@ export interface FormIntegration {
     formIdOrUrl: string;
     processId: string;
     webhookUrl: string;
-}
-
-
-export interface Application {
-    id: string;
-    candidateId: string;
-    formId: string;
-    answers: Record<string, string | boolean | string[]>; // field.id -> answer
-    submittedAt: string;
 }
