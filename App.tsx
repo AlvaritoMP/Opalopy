@@ -1,358 +1,283 @@
-import React, { createContext, useContext, useEffect, useReducer, useMemo } from 'react';
+
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { initialProcesses, initialCandidates, initialUsers, initialSettings, initialFormIntegrations, initialInterviewEvents } from './lib/data';
+import { Process, Candidate, User, AppSettings, FormIntegration, InterviewEvent, CandidateHistory, Application } from './types';
+import { getSettings, saveSettings as saveSettingsToStorage } from './lib/settings';
 import { Dashboard } from './components/Dashboard';
 import { ProcessList } from './components/ProcessList';
 import { ProcessView } from './components/ProcessView';
 import { ReportsView } from './components/ReportsView';
-import { Users } from './components/Users';
 import { Settings } from './components/Settings';
+import { Users } from './components/Users';
 import { Forms } from './components/Forms';
 import { CalendarView } from './components/CalendarView';
+import { BulkImportView } from './components/BulkImportView';
 import { Spinner } from './components/Spinner';
-import { Candidate, Process, User, Form, Application, AppSettings, FormIntegration, InterviewEvent } from './types';
-import { api } from './lib/api';
-import { Briefcase, LayoutGrid, BarChart2, Users as UsersIcon, Settings as SettingsIcon, FileText, Calendar } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp } from 'lucide-react';
 
 
-type View = 'dashboard' | 'processes' | 'process-view' | 'reports' | 'users' | 'settings' | 'forms' | 'calendar';
-
+// State and Actions types
 interface AppState {
-    loading: boolean;
-    view: View;
-    currentProcessId: string | null;
     processes: Process[];
     candidates: Candidate[];
     users: User[];
-    forms: Form[];
     applications: Application[];
+    settings: AppSettings | null;
     formIntegrations: FormIntegration[];
     interviewEvents: InterviewEvent[];
-    settings: AppSettings | null;
     currentUser: User | null;
+    view: { type: string; payload?: any };
+    loading: boolean;
 }
 
-type Action =
-    | { type: 'SET_LOADING'; payload: boolean }
-    | { type: 'SET_DATA'; payload: { processes: Process[]; candidates: Candidate[]; users: User[]; forms: Form[]; applications: Application[]; formIntegrations: FormIntegration[]; interviewEvents: InterviewEvent[]; settings: AppSettings | null } }
-    | { type: 'SET_VIEW'; payload: { view: View; processId?: string | null } }
-    | { type: 'ADD_PROCESS'; payload: Process }
-    | { type: 'UPDATE_PROCESS'; payload: Process }
-    | { type: 'DELETE_PROCESS'; payload: string }
-    | { type: 'ADD_CANDIDATE'; payload: Candidate }
-    | { type: 'UPDATE_CANDIDATE'; payload: Candidate }
-    | { type: 'SAVE_SETTINGS'; payload: AppSettings }
-    | { type: 'ADD_FORM_INTEGRATION'; payload: FormIntegration }
-    | { type: 'DELETE_FORM_INTEGRATION'; payload: string }
-    | { type: 'ADD_USER'; payload: User }
-    | { type: 'UPDATE_USER'; payload: User }
-    | { type: 'DELETE_USER'; payload: string }
-    | { type: 'ADD_INTERVIEW_EVENT'; payload: InterviewEvent }
-    | { type: 'UPDATE_INTERVIEW_EVENT'; payload: InterviewEvent }
-    | { type: 'DELETE_INTERVIEW_EVENT'; payload: string };
-
-
-const initialState: AppState = {
-    loading: true,
-    view: 'dashboard',
-    currentProcessId: null,
-    processes: [],
-    candidates: [],
-    users: [],
-    forms: [],
-    applications: [],
-    formIntegrations: [],
-    interviewEvents: [],
-    settings: null,
-    currentUser: { id: 'user-1', name: 'Super Admin', email: 'admin@ats.com', role: 'admin' }, // mock current user
-};
-
-const appReducer = (state: AppState, action: Action): AppState => {
-    switch (action.type) {
-        case 'SET_LOADING':
-            return { ...state, loading: action.payload };
-        case 'SET_DATA':
-            return { ...state, ...action.payload, loading: false };
-        case 'SET_VIEW':
-            return { ...state, view: action.payload.view, currentProcessId: action.payload.processId || null };
-        case 'ADD_PROCESS':
-            return { ...state, processes: [...state.processes, action.payload] };
-        case 'UPDATE_PROCESS':
-            return {
-                ...state,
-                processes: state.processes.map(p => p.id === action.payload.id ? action.payload : p),
-            };
-        case 'DELETE_PROCESS':
-            return {
-                ...state,
-                processes: state.processes.filter(p => p.id !== action.payload),
-                candidates: state.candidates.filter(c => c.processId !== action.payload),
-            };
-        case 'ADD_CANDIDATE':
-            return { ...state, candidates: [...state.candidates, action.payload] };
-        case 'UPDATE_CANDIDATE':
-             return {
-                ...state,
-                candidates: state.candidates.map(c => c.id === action.payload.id ? action.payload : c),
-            };
-        case 'SAVE_SETTINGS':
-            return { ...state, settings: action.payload };
-        case 'ADD_FORM_INTEGRATION':
-            return { ...state, formIntegrations: [...state.formIntegrations, action.payload] };
-        case 'DELETE_FORM_INTEGRATION':
-            return { ...state, formIntegrations: state.formIntegrations.filter(fi => fi.id !== action.payload) };
-        case 'ADD_USER':
-            return { ...state, users: [...state.users, action.payload] };
-        case 'UPDATE_USER':
-            return { ...state, users: state.users.map(u => u.id === action.payload.id ? action.payload : u) };
-        case 'DELETE_USER':
-            return { ...state, users: state.users.filter(u => u.id !== action.payload) };
-        case 'ADD_INTERVIEW_EVENT':
-            return { ...state, interviewEvents: [...state.interviewEvents, action.payload] };
-        case 'UPDATE_INTERVIEW_EVENT':
-            return { ...state, interviewEvents: state.interviewEvents.map(e => e.id === action.payload.id ? action.payload : e) };
-        case 'DELETE_INTERVIEW_EVENT':
-            return { ...state, interviewEvents: state.interviewEvents.filter(e => e.id !== action.payload) };
-        default:
-            return state;
-    }
-};
+interface AppActions {
+    addProcess: (processData: Omit<Process, 'id' | 'attachments'>) => Promise<void>;
+    updateProcess: (processData: Process) => Promise<void>;
+    deleteProcess: (processId: string) => Promise<void>;
+    addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<void>;
+    updateCandidate: (candidateData: Candidate, movedBy?: string) => Promise<void>;
+    deleteCandidate: (candidateId: string) => Promise<void>;
+    addUser: (userData: Omit<User, 'id'>) => Promise<void>;
+    updateUser: (userData: User) => Promise<void>;
+    deleteUser: (userId: string) => Promise<void>;
+    saveSettings: (settings: AppSettings) => Promise<void>;
+    addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<void>;
+    deleteFormIntegration: (integrationId: string) => Promise<void>;
+    addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
+    updateInterviewEvent: (eventData: InterviewEvent) => Promise<void>;
+    deleteInterviewEvent: (eventId: string) => Promise<void>;
+    setView: (type: string, payload?: any) => void;
+}
 
 interface AppContextType {
     state: AppState;
-    actions: {
-        setView: (view: View, processId?: string) => void;
-        addProcess: (processData: Omit<Process, 'id'>) => Promise<void>;
-        updateProcess: (process: Process) => Promise<void>;
-        deleteProcess: (processId: string) => Promise<void>;
-        addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<void>;
-        updateCandidate: (candidate: Candidate, movedBy?: string) => Promise<void>;
-        saveSettings: (settings: AppSettings) => Promise<void>;
-        addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<void>;
-        deleteFormIntegration: (integrationId: string) => Promise<void>;
-        addUser: (userData: Omit<User, 'id'>) => Promise<void>;
-        updateUser: (user: User) => Promise<void>;
-        deleteUser: (userId: string) => Promise<void>;
-        addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
-        updateInterviewEvent: (event: InterviewEvent) => Promise<void>;
-        deleteInterviewEvent: (eventId: string) => Promise<void>;
-    };
-    getLabel: (key: string, defaultLabel: string) => string;
+    actions: AppActions;
+    getLabel: (key: string, fallback: string) => string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const useAppState = () => {
-    const context = useContext(AppContext);
-    if (!context) {
-        throw new Error('useAppState must be used within an AppProvider');
-    }
-    return context;
-};
+// --- Sidebar Components (defined in App.tsx to avoid creating new files) ---
 
-const NavLink: React.FC<{
-    view: View;
-    labelKey: string;
-    defaultLabel: string;
-    currentView: View;
-    setView: (view: View, processId?: string) => void;
-    icon: React.ElementType;
-}> = ({ view, labelKey, defaultLabel, currentView, setView, icon: Icon }) => {
-    const { getLabel } = useAppState();
+const NavItem: React.FC<{
+    icon: React.ElementType,
+    label: string,
+    view: string,
+    currentView: string,
+    setView: (view: string) => void,
+    isCollapsed: boolean,
+}> = ({ icon: Icon, label, view, currentView, setView, isCollapsed }) => {
+    const isActive = currentView === view;
     return (
         <button
             onClick={() => setView(view)}
-            className={`flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
-                currentView === view
-                    ? 'bg-primary-100 text-primary-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
+            className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
+                isActive
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
+            } ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? label : undefined}
         >
-            <Icon className="w-5 h-5 mr-3" />
-            {getLabel(labelKey, defaultLabel)}
+            <Icon className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'}`} />
+            {!isCollapsed && label}
         </button>
     );
-}
+};
 
-const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const Sidebar: React.FC = () => {
     const { state, actions, getLabel } = useAppState();
-    const isAdmin = state.currentUser?.role === 'admin';
+    const [isCollapsed, setIsCollapsed] = React.useState(false);
+    
+    if (!state.currentUser) return null;
 
     return (
-        <div className="flex h-screen bg-gray-100 font-sans">
-            <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-                <div className="h-16 flex items-center justify-center border-b px-4">
-                     {state.settings?.logoUrl ? (
-                        <img src={state.settings.logoUrl} alt="App Logo" className="h-8 object-contain" />
-                    ) : (
-                        <h1 className="text-xl font-bold text-primary-600">{state.settings?.appName || 'ATS Pro'}</h1>
-                    )}
-                </div>
-                <nav className="flex-1 p-4 space-y-2">
-                    <NavLink view="dashboard" labelKey="sidebar_dashboard" defaultLabel="Dashboard" currentView={state.view} setView={actions.setView} icon={LayoutGrid} />
-                    <NavLink view="processes" labelKey="sidebar_processes" defaultLabel="Processes" currentView={state.view} setView={actions.setView} icon={Briefcase} />
-                    <NavLink view="calendar" labelKey="sidebar_calendar" defaultLabel="Calendar" currentView={state.view} setView={actions.setView} icon={Calendar} />
-                    <NavLink view="reports" labelKey="sidebar_reports" defaultLabel="Reports" currentView={state.view} setView={actions.setView} icon={BarChart2} />
-                    <NavLink view="forms" labelKey="sidebar_forms" defaultLabel="Forms" currentView={state.view} setView={actions.setView} icon={FileText} />
-                    {isAdmin && <NavLink view="users" labelKey="sidebar_users" defaultLabel="Users" currentView={state.view} setView={actions.setView} icon={UsersIcon} />}
-                </nav>
-                 <div className="p-4 border-t">
-                    {isAdmin && <NavLink view="settings" labelKey="sidebar_settings" defaultLabel="Settings" currentView={state.view} setView={actions.setView} icon={SettingsIcon} />}
-                </div>
-            </aside>
-            <main className="flex-1 overflow-y-auto">
-                {children}
-            </main>
+        <div className={`flex flex-col bg-white border-r transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+            <div className={`flex items-center border-b p-4 h-16 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+                {!isCollapsed && (
+                     <div className="flex items-center overflow-hidden">
+                        {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-8 mr-2 object-contain" />}
+                        <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'ATS Pro'}</span>
+                    </div>
+                )}
+                <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-2 rounded-md hover:bg-gray-100 flex-shrink-0">
+                    {isCollapsed ? <ChevronsRight className="w-5 h-5 text-gray-600" /> : <ChevronsLeft className="w-5 h-5 text-gray-600" />}
+                </button>
+            </div>
+            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                <NavItem icon={LayoutDashboard} label={getLabel('sidebar_dashboard', 'Dashboard')} view="dashboard" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={Briefcase} label={getLabel('sidebar_processes', 'Processes')} view="processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={FileText} label={getLabel('sidebar_forms', 'Forms')} view="forms" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={Calendar} label={getLabel('sidebar_calendar', 'Calendar')} view="calendar" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={BarChart2} label={getLabel('sidebar_reports', 'Reports')} view="reports" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={FileUp} label={getLabel('sidebar_bulk_import', 'Bulk Import')} view="bulk-import" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+            </nav>
+            <div className="p-4 border-t space-y-2">
+                <NavItem icon={UsersIcon} label={getLabel('sidebar_users', 'Users')} view="users" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={SettingsIcon} label="Settings" view="settings" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+            </div>
         </div>
     );
 };
 
+// --- Main App Component ---
 
-const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [state, dispatch] = useReducer(appReducer, initialState);
+const App: React.FC = () => {
+    const [state, setState] = useState<AppState>({
+        processes: [],
+        candidates: [],
+        users: [],
+        applications: [],
+        settings: null,
+        formIntegrations: [],
+        interviewEvents: [],
+        currentUser: null,
+        view: { type: 'dashboard' },
+        loading: true,
+    });
 
     useEffect(() => {
-        const loadData = async () => {
-            dispatch({ type: 'SET_LOADING', payload: true });
-            const [processes, candidates, users, forms, applications, formIntegrations, settings, interviewEvents] = await Promise.all([
-                api.getProcesses(),
-                api.getCandidates(),
-                api.getUsers(),
-                api.getForms(),
-                api.getApplications(),
-                api.getFormIntegrations(),
-                api.getSettings(),
-                api.getInterviewEvents(),
-            ]);
-            dispatch({ type: 'SET_DATA', payload: { processes, candidates, users, forms, applications, formIntegrations, settings, interviewEvents } });
-        };
-        loadData();
+        setTimeout(() => {
+            const loadedSettings = getSettings();
+            setState({
+                processes: initialProcesses,
+                candidates: initialCandidates,
+                users: initialUsers,
+                applications: [],
+                settings: loadedSettings || initialSettings,
+                formIntegrations: initialFormIntegrations,
+                interviewEvents: initialInterviewEvents,
+                currentUser: initialUsers.find(u => u.role === 'admin') || initialUsers[0],
+                view: { type: 'dashboard' },
+                loading: false,
+            });
+        }, 500);
     }, []);
+
+    const actions: AppActions = useMemo(() => ({
+        setView: (type, payload) => setState(s => ({ ...s, view: { type, payload } })),
+        saveSettings: async (settings) => {
+            saveSettingsToStorage(settings);
+            setState(s => ({ ...s, settings }));
+        },
+        addProcess: async (processData) => {
+            const newProcess: Process = { ...processData, id: `proc-${Date.now()}`, attachments: [] };
+            setState(s => ({ ...s, processes: [...s.processes, newProcess] }));
+        },
+        updateProcess: async (processData) => {
+            setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? processData : p) }));
+        },
+        deleteProcess: async (processId) => {
+            setState(s => ({
+                ...s,
+                processes: s.processes.filter(p => p.id !== processId),
+                candidates: s.candidates.filter(c => c.processId !== processId),
+            }));
+        },
+        addCandidate: async (candidateData) => {
+            const newCandidate: Candidate = {
+                ...candidateData,
+                id: `cand-${Date.now()}`,
+                history: [{
+                    stageId: candidateData.stageId,
+                    movedAt: new Date().toISOString(),
+                    movedBy: state.currentUser?.name || 'System',
+                }]
+            };
+            setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
+        },
+        updateCandidate: async (candidateData, movedBy) => {
+            setState(s => {
+                const oldCandidate = s.candidates.find(c => c.id === candidateData.id);
+                let newHistory: CandidateHistory[] = oldCandidate ? [...oldCandidate.history] : [];
+
+                if (oldCandidate && oldCandidate.stageId !== candidateData.stageId) {
+                    newHistory.push({
+                        stageId: candidateData.stageId,
+                        movedAt: new Date().toISOString(),
+                        movedBy: movedBy || state.currentUser?.name || 'System',
+                    });
+                }
+                const updatedCandidate = { ...candidateData, history: newHistory };
+                return { ...s, candidates: s.candidates.map(c => c.id === candidateData.id ? updatedCandidate : c) };
+            });
+        },
+        deleteCandidate: async (candidateId) => {
+            setState(s => ({ ...s, candidates: s.candidates.filter(c => c.id !== candidateId) }));
+        },
+        addUser: async (userData) => {
+            const newUser: User = { ...userData, id: `user-${Date.now()}` };
+            setState(s => ({ ...s, users: [...s.users, newUser] }));
+        },
+        updateUser: async (userData) => {
+            setState(s => ({ ...s, users: s.users.map(u => u.id === userData.id ? userData : u) }));
+        },
+        deleteUser: async (userId) => {
+            setState(s => ({ ...s, users: s.users.filter(u => u.id !== userId) }));
+        },
+        addFormIntegration: async (integrationData) => {
+            const newIntegration: FormIntegration = {
+                ...integrationData,
+                id: `fi-${Date.now()}`,
+                webhookUrl: `https://example.com/webhook/${Date.now()}`
+            };
+            setState(s => ({ ...s, formIntegrations: [...s.formIntegrations, newIntegration] }));
+        },
+        deleteFormIntegration: async (integrationId) => {
+            setState(s => ({ ...s, formIntegrations: s.formIntegrations.filter(fi => fi.id !== integrationId) }));
+        },
+        addInterviewEvent: async (eventData) => {
+            const newEvent: InterviewEvent = { ...eventData, id: `evt-${Date.now()}` };
+            setState(s => ({ ...s, interviewEvents: [...s.interviewEvents, newEvent] }));
+        },
+        updateInterviewEvent: async (eventData) => {
+            setState(s => ({ ...s, interviewEvents: s.interviewEvents.map(e => e.id === eventData.id ? eventData : e) }));
+        },
+        deleteInterviewEvent: async (eventId) => {
+            setState(s => ({ ...s, interviewEvents: s.interviewEvents.filter(e => e.id !== eventId) }));
+        },
+    }), [state.currentUser]);
+
+    const getLabel = (key: string, fallback: string): string => {
+        return state.settings?.customLabels?.[key] || fallback;
+    };
     
-    const getLabel = (key: string, defaultLabel: string): string => {
-        return state.settings?.customLabels?.[key] || defaultLabel;
+    const renderView = () => {
+        switch (state.view.type) {
+            case 'dashboard': return <Dashboard />;
+            case 'processes': return <ProcessList />;
+            case 'process-view': return <ProcessView processId={state.view.payload} />;
+            case 'reports': return <ReportsView />;
+            case 'forms': return <Forms />;
+            case 'calendar': return <CalendarView />;
+            case 'users': return <Users />;
+            case 'settings': return <Settings />;
+            case 'bulk-import': return <BulkImportView />;
+            default: return <Dashboard />;
+        }
     };
 
+    if (state.loading) {
+        return <div className="w-full h-screen flex items-center justify-center"><Spinner /></div>;
+    }
 
-    const actions = useMemo(() => ({
-        setView: (view: View, processId: string | null = null) => {
-            dispatch({ type: 'SET_VIEW', payload: { view, processId } });
-        },
-        addProcess: async (processData: Omit<Process, 'id'>) => {
-            const newProcess = await api.addProcess(processData);
-            dispatch({ type: 'ADD_PROCESS', payload: newProcess });
-        },
-        updateProcess: async (process: Process) => {
-            const updatedProcess = await api.updateProcess(process);
-            dispatch({ type: 'UPDATE_PROCESS', payload: updatedProcess });
-        },
-        deleteProcess: async (processId: string) => {
-            await api.deleteProcess(processId);
-            dispatch({ type: 'DELETE_PROCESS', payload: processId });
-        },
-        addCandidate: async (candidateData: Omit<Candidate, 'id'| 'history'>) => {
-            const newCandidate = await api.addCandidate(candidateData, state.currentUser?.name || 'System');
-            dispatch({ type: 'ADD_CANDIDATE', payload: newCandidate });
-        },
-        updateCandidate: async (candidate: Candidate, movedBy: string | undefined = undefined) => {
-            let updatedCandidate = { ...candidate };
-            const originalCandidate = state.candidates.find(c => c.id === candidate.id);
-
-            if (movedBy && originalCandidate && originalCandidate.stageId !== candidate.stageId) {
-                updatedCandidate.history = [
-                    ...candidate.history,
-                    { stageId: candidate.stageId, movedAt: new Date().toISOString(), movedBy }
-                ];
-            }
-            const savedCandidate = await api.updateCandidate(updatedCandidate);
-            dispatch({ type: 'UPDATE_CANDIDATE', payload: savedCandidate });
-        },
-        saveSettings: async (settings: AppSettings) => {
-            const savedSettings = await api.saveSettings(settings);
-            dispatch({ type: 'SAVE_SETTINGS', payload: savedSettings });
-        },
-        addFormIntegration: async (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => {
-            const newIntegration = await api.addFormIntegration(integrationData);
-            dispatch({ type: 'ADD_FORM_INTEGRATION', payload: newIntegration });
-        },
-        deleteFormIntegration: async (integrationId: string) => {
-            await api.deleteFormIntegration(integrationId);
-            dispatch({ type: 'DELETE_FORM_INTEGRATION', payload: integrationId });
-        },
-        addUser: async (userData: Omit<User, 'id'>) => {
-            const newUser = await api.addUser(userData);
-            dispatch({ type: 'ADD_USER', payload: newUser });
-        },
-        updateUser: async (user: User) => {
-            const updatedUser = await api.updateUser(user);
-            dispatch({ type: 'UPDATE_USER', payload: updatedUser });
-        },
-        deleteUser: async (userId: string) => {
-            await api.deleteUser(userId);
-            dispatch({ type: 'DELETE_USER', payload: userId });
-        },
-        addInterviewEvent: async (eventData: Omit<InterviewEvent, 'id'>) => {
-            const newEvent = await api.addInterviewEvent(eventData);
-            dispatch({ type: 'ADD_INTERVIEW_EVENT', payload: newEvent });
-        },
-        updateInterviewEvent: async (event: InterviewEvent) => {
-            const updatedEvent = await api.updateInterviewEvent(event);
-            dispatch({ type: 'UPDATE_INTERVIEW_EVENT', payload: updatedEvent });
-        },
-        deleteInterviewEvent: async (eventId: string) => {
-            await api.deleteInterviewEvent(eventId);
-            dispatch({ type: 'DELETE_INTERVIEW_EVENT', payload: eventId });
-        },
-    }), [state.candidates, state.currentUser]);
-    
     return (
         <AppContext.Provider value={{ state, actions, getLabel }}>
-            {children}
+            <div className="flex h-screen bg-gray-50 font-sans text-gray-900">
+                <Sidebar />
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {renderView()}
+                </div>
+            </div>
         </AppContext.Provider>
     );
 };
 
-
-const App: React.FC = () => {
-    return (
-        <AppProvider>
-            <Main />
-        </AppProvider>
-    );
-};
-
-const Main: React.FC = () => {
-    const { state } = useAppState();
-
-    const renderView = () => {
-        if (state.loading) {
-            return <div className="flex items-center justify-center h-screen"><Spinner /></div>;
-        }
-        switch (state.view) {
-            case 'dashboard':
-                return <Dashboard />;
-            case 'processes':
-                return <ProcessList />;
-            case 'process-view':
-                return state.currentProcessId ? <ProcessView processId={state.currentProcessId} /> : <ProcessList />;
-            case 'reports':
-                return <ReportsView />;
-            case 'users':
-                return <Users />;
-            case 'settings':
-                return <Settings />;
-            case 'forms':
-                return <Forms />;
-            case 'calendar':
-                return <CalendarView />;
-            default:
-                return <Dashboard />;
-        }
-    };
-    
-    return (
-        <Layout>
-            {renderView()}
-        </Layout>
-    );
+export const useAppState = () => {
+    const context = useContext(AppContext);
+    if (context === undefined) {
+        throw new Error('useAppState must be used within an AppProvider');
+    }
+    return context;
 };
 
 export default App;

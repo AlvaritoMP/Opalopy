@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAppState } from '../App';
-import { Briefcase, Users, FileText, CheckCircle } from 'lucide-react';
+import { Briefcase, Users, FileText, CheckCircle, Calendar } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, CartesianGrid, XAxis, YAxis, Bar } from 'recharts';
 
 const StatCard: React.FC<{
@@ -37,7 +37,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
 
 export const Dashboard: React.FC = () => {
     const { state, getLabel } = useAppState();
-    const { processes, candidates: allCandidates, applications } = state;
+    const { processes, candidates: allCandidates, applications, interviewEvents, users } = state;
 
     const [processFilter, setProcessFilter] = useState<string>('all');
     const [dateFilter, setDateFilter] = useState<{ start: string; end: string }>({ start: '', end: '' });
@@ -104,9 +104,17 @@ export const Dashboard: React.FC = () => {
         return Object.entries(ageBrackets).map(([name, value]) => ({ name, Candidates: value }));
     }, [filteredCandidates]);
 
+    const upcomingInterviews = useMemo(() => {
+        const now = new Date();
+        return interviewEvents
+            .filter(event => event.start > now)
+            .sort((a, b) => a.start.getTime() - b.start.getTime())
+            .slice(0, 4);
+    }, [interviewEvents]);
+
 
     return (
-        <div className="p-8 bg-gray-50/50 min-h-full">
+        <div className="p-8 bg-gray-50/50 min-h-full overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Dashboard')}</h1>
             </div>
@@ -220,6 +228,34 @@ export const Dashboard: React.FC = () => {
                         <Bar dataKey="Candidates" fill="#82ca9d" />
                     </BarChart>
                 </ChartContainer>
+            </div>
+            
+            <div className="mt-8">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center"><Calendar className="w-5 h-5 mr-3 text-primary-500" /> Upcoming Interviews</h2>
+                    <div className="space-y-3">
+                        {upcomingInterviews.length > 0 ? (
+                            upcomingInterviews.map(event => {
+                                const candidate = allCandidates.find(c => c.id === event.candidateId);
+                                const interviewer = users.find(u => u.id === event.interviewerId);
+                                return (
+                                    <div key={event.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                        <div>
+                                            <p className="font-medium text-gray-900">{candidate?.name || 'Unknown Candidate'}</p>
+                                            <p className="text-sm text-gray-500">with {interviewer?.name || 'Unknown Interviewer'}</p>
+                                        </div>
+                                        <div className="text-right flex-shrink-0 ml-4">
+                                            <p className="text-sm font-medium text-gray-700">{event.start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                                            <p className="text-xs text-gray-500">{event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <p className="text-center text-gray-500 py-8">No upcoming interviews scheduled.</p>
+                        )}
+                    </div>
+                </div>
             </div>
 
         </div>
