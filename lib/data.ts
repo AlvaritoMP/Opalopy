@@ -1,4 +1,3 @@
-
 import { Process, Candidate, User, Form, Application, AppSettings, FormIntegration } from '../types';
 
 export const initialProcesses: Process[] = [
@@ -34,6 +33,7 @@ export const initialCandidates: Candidate[] = [
         id: 'candidate-1',
         name: 'Alice Johnson',
         email: 'alice@example.com',
+        avatarUrl: 'https://images.unsplash.com/photo-1521119989659-a83eee488004?q=80&w=400',
         processId: 'process-1',
         stageId: 'stage-1-3',
         history: [
@@ -43,7 +43,7 @@ export const initialCandidates: Candidate[] = [
         ],
         notes: "Strong React skills. Impressive portfolio project.",
         attachments: [
-            { id: 'file-1', name: 'alice_johnson_resume.pdf', url: 'about:blank', type: 'application/pdf', size: 123456 },
+            { id: 'file-1', name: 'alice_johnson_resume.pdf', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', type: 'application/pdf', size: 123456 },
             { id: 'file-2', name: 'portfolio_preview.png', url: 'https://images.unsplash.com/photo-1580927752452-89d86da3fa0a?q=80&w=800', type: 'image/png', size: 78910 }
         ]
     },

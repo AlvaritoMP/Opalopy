@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { Process, Attachment } from '../types';
-import { X, FileText, Paperclip } from 'lucide-react';
+import { X, FileText, Paperclip, User } from 'lucide-react';
 
 interface AddCandidateModalProps {
     process: Process;
@@ -14,14 +13,39 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [attachments, setAttachments] = useState<Attachment[]>([]);
-    const [file, setFile] = useState<File | null>(null);
+    const [resumeFile, setResumeFile] = useState<File | null>(null);
+    const [avatarFile, setAvatarFile] = useState<File | null>(null);
+    const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleResumeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (selectedFile) {
-            setFile(selectedFile);
+            setResumeFile(selectedFile);
         }
+    };
+    
+    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+            setAvatarFile(file);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setAvatarPreview(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        } else {
+            setAvatarFile(null);
+            setAvatarPreview(null);
+        }
+    };
+
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -32,20 +56,27 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
         }
 
         let newAttachments: Attachment[] = [];
-        if (file) {
+        if (resumeFile) {
+            const fileDataUrl = await fileToBase64(resumeFile);
             newAttachments.push({
                 id: `file-${Date.now()}`,
-                name: file.name,
-                url: URL.createObjectURL(file), // Mock URL
-                type: file.type,
-                size: file.size,
+                name: resumeFile.name,
+                url: fileDataUrl,
+                type: resumeFile.type,
+                size: resumeFile.size,
             });
+        }
+        
+        let avatarUrl: string | undefined = undefined;
+        if (avatarFile) {
+            avatarUrl = await fileToBase64(avatarFile);
         }
 
         await actions.addCandidate({
             name,
             email,
             phone,
+            avatarUrl,
             processId: process.id,
             stageId: process.stages[0].id, // Add to the first stage
             attachments: newAttachments,
@@ -63,7 +94,20 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                             <X className="w-6 h-6 text-gray-600" />
                         </button>
                     </div>
-                    <div className="p-6 space-y-4">
+                    <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                         <div className="flex flex-col items-center space-y-2">
+                             <label htmlFor="avatar-upload" className="cursor-pointer">
+                                {avatarPreview ? (
+                                    <img src={avatarPreview} alt="Avatar preview" className="w-24 h-24 rounded-full object-cover" />
+                                 ) : (
+                                    <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center border">
+                                        <User className="w-12 h-12 text-gray-400" />
+                                    </div>
+                                 )}
+                             </label>
+                             <input id="avatar-upload" name="avatar-upload" type="file" accept="image/*" className="sr-only" onChange={handleAvatarChange}/>
+                             <span className="text-sm text-gray-500">Profile Picture (Optional)</span>
+                         </div>
                         <div>
                             <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                             <input type="text" id="name" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
@@ -80,11 +124,11 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                             <label className="block text-sm font-medium text-gray-700">Resume (Optional)</label>
                             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                                 <div className="space-y-1 text-center">
-                                    {file ? (
+                                    {resumeFile ? (
                                         <>
                                             <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                                            <p className="text-sm text-gray-600">{file.name}</p>
-                                            <button type="button" onClick={() => setFile(null)} className="text-xs text-red-500 hover:underline">Remove</button>
+                                            <p className="text-sm text-gray-600">{resumeFile.name}</p>
+                                            <button type="button" onClick={() => setResumeFile(null)} className="text-xs text-red-500 hover:underline">Remove</button>
                                         </>
                                     ) : (
                                         <>
@@ -92,7 +136,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                                             <div className="flex text-sm text-gray-600">
                                                 <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500">
                                                     <span>Upload a file</span>
-                                                    <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange}/>
+                                                    <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleResumeFileChange}/>
                                                 </label>
                                                 <p className="pl-1">or drag and drop</p>
                                             </div>
