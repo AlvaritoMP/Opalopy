@@ -1,3 +1,13 @@
+// Populated the `types.ts` file with type definitions based on their usage across the application. This resolves multiple "Cannot find name" and "is not a module" errors.
+export type UserRole = 'admin' | 'recruiter' | 'viewer';
+
+export interface User {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+}
+
 export interface Stage {
     id: string;
     name: string;
@@ -25,7 +35,7 @@ export interface Process {
     attachments: Attachment[];
 }
 
-export interface StageHistory {
+export interface CandidateHistory {
     stageId: string;
     movedAt: string;
     movedBy: string;
@@ -39,32 +49,33 @@ export interface Candidate {
     avatarUrl?: string;
     processId: string;
     stageId: string;
+    history: CandidateHistory[];
     attachments: Attachment[];
     notes?: string;
-    history: StageHistory[];
-}
-
-export type UserRole = 'admin' | 'recruiter' | 'viewer';
-
-export interface User {
-    id: string;
-    name: string;
-    email: string;
-    role: UserRole;
+    source?: 'LinkedIn' | 'Referral' | 'Website' | 'Other';
+    salaryExpectation?: string;
+    age?: number;
+    dni?: string;
+    linkedinUrl?: string;
+    socials?: {
+        github?: string;
+        portfolio?: string;
+    };
 }
 
 export interface Form {
     id: string;
-    title: string;
-    fields: { id: string; label: string; type: string }[];
+    name: string;
+    processId: string;
 }
 
 export interface Application {
     id: string;
-    candidateId: string;
+    candidateName: string;
+    candidateEmail: string;
     formId: string;
     submittedAt: string;
-    answers: { fieldId: string; answer: any }[];
+    answers: Record<string, string>;
 }
 
 export interface AppSettings {
@@ -73,7 +84,7 @@ export interface AppSettings {
         apiToken: string;
     };
     fileStorage: {
-        provider: 'Google Drive';
+        provider: 'Google Drive' | 'None';
         connected: boolean;
     };
 }

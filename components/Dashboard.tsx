@@ -1,107 +1,172 @@
-
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppState } from '../App';
-import { Users, Briefcase, CheckCircle, Clock, BarChart, PieChart, TrendingUp } from 'lucide-react';
-import { BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart as RePieChart, Pie, Cell, Tooltip as PieTooltip } from 'recharts';
+import { Briefcase, Users, FileText, CheckCircle } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ElementType; color: string; }> = ({ title, value, icon: Icon, color }) => (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 flex items-center shadow-sm">
-        <div className={`p-3 rounded-full ${color}`}>
+const StatCard: React.FC<{
+    icon: React.ElementType;
+    title: string;
+    value: number | string;
+    color: string;
+}> = ({ icon: Icon, title, value, color }) => (
+    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center">
+        <div className={`p-3 rounded-full mr-4 ${color}`}>
             <Icon className="w-6 h-6 text-white" />
         </div>
-        <div className="ml-4">
+        <div>
             <p className="text-sm text-gray-500">{title}</p>
-            <p className="text-2xl font-semibold text-gray-800">{value}</p>
+            <p className="text-2xl font-bold text-gray-800">{value}</p>
         </div>
     </div>
 );
 
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
+
 export const Dashboard: React.FC = () => {
     const { state } = useAppState();
-    const { processes, candidates } = state;
+    const { processes, candidates: allCandidates, applications } = state;
 
-    const totalProcesses = processes.length;
-    const totalCandidates = candidates.length;
-    const hiredCandidates = candidates.filter(c => {
+    const [processFilter, setProcessFilter] = useState<string>('all');
+    const [dateFilter, setDateFilter] = useState<{ start: string; end: string }>({ start: '', end: '' });
+
+    const filteredCandidates = useMemo(() => {
+        return allCandidates.filter(candidate => {
+            const processMatch = processFilter === 'all' || candidate.processId === processFilter;
+            
+            const applicationDate = new Date(candidate.history[0]?.movedAt);
+            const startDate = dateFilter.start ? new Date(dateFilter.start) : null;
+            const endDate = dateFilter.end ? new Date(dateFilter.end) : null;
+            if(startDate) startDate.setHours(0,0,0,0);
+            if(endDate) endDate.setHours(23,59,59,999);
+
+
+            const dateMatch = (!startDate || applicationDate >= startDate) && (!endDate || applicationDate <= endDate);
+
+            return processMatch && dateMatch;
+        });
+    }, [allCandidates, processFilter, dateFilter]);
+
+    const totalCandidates = filteredCandidates.length;
+    const totalProcesses = processes.length; // This stat is not filtered
+    const totalApplications = applications.length; // This stat is not filtered
+    
+    const hiredCandidates = filteredCandidates.filter(c => {
         const process = processes.find(p => p.id === c.processId);
-        if(!process) return false;
-        const lastStage = process.stages[process.stages.length - 1];
-        return c.stageId === lastStage?.id;
+        if (!process || process.stages.length === 0) return false;
+        const lastStageId = process.stages[process.stages.length - 1].id;
+        return c.stageId === lastStageId;
     }).length;
 
-    const avgTimeInStage = () => {
-        let totalDays = 0;
-        let transitions = 0;
-        candidates.forEach(c => {
-            for (let i = 1; i < c.history.length; i++) {
-                const start = new Date(c.history[i-1].movedAt).getTime();
-                const end = new Date(c.history[i].movedAt).getTime();
-                totalDays += (end - start) / (1000 * 3600 * 24);
-                transitions++;
-            }
+    const candidateSources = useMemo(() => {
+        const sourceMap = new Map<string, number>();
+        filteredCandidates.forEach(c => {
+            const source = c.source || 'Other';
+            sourceMap.set(source, (sourceMap.get(source) || 0) + 1);
         });
-        return transitions > 0 ? (totalDays / transitions).toFixed(1) : 'N/A';
-    };
-
-    const candidatesPerStageData = processes.flatMap(p => p.stages).map(stage => ({
-        name: stage.name,
-        candidates: candidates.filter(c => c.stageId === stage.id).length
-    })).reduce((acc, curr) => {
-        const existing = acc.find(item => item.name === curr.name);
-        if (existing) {
-            existing.candidates += curr.candidates;
-        } else {
-            acc.push(curr);
-        }
-        return acc;
-    }, [] as {name: string, candidates: number}[]).filter(d => d.candidates > 0);
-
-    const processesData = processes.map(process => ({
-        name: process.title,
-        candidates: candidates.filter(c => c.processId === process.id).length
-    }));
-    
-    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+        return Array.from(sourceMap, ([name, value]) => ({ name, value }));
+    }, [filteredCandidates]);
 
     return (
-        <div className="p-8 bg-gray-50/50">
-            <h1 className="text-3xl font-bold text-gray-800 mb-8">Dashboard</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <StatCard title="Active Processes" value={totalProcesses} icon={Briefcase} color="bg-blue-500" />
-                <StatCard title="Total Candidates" value={totalCandidates} icon={Users} color="bg-indigo-500" />
-                <StatCard title="Candidates Hired" value={hiredCandidates} icon={CheckCircle} color="bg-green-500" />
-                <StatCard title="Avg. Time per Stage (Days)" value={avgTimeInStage()} icon={Clock} color="bg-yellow-500" />
+        <div className="p-8 bg-gray-50/50 min-h-full">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
+            </div>
+            
+            {/* Filters */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-8 flex items-center space-x-4">
+                <div>
+                    <label htmlFor="processFilter" className="text-sm font-medium text-gray-700">Filter by Process:</label>
+                    <select 
+                        id="processFilter"
+                        value={processFilter}
+                        onChange={(e) => setProcessFilter(e.target.value)}
+                        className="ml-2 border-gray-300 rounded-md shadow-sm"
+                    >
+                        <option value="all">All Processes</option>
+                        {processes.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="startDate" className="text-sm font-medium text-gray-700">From:</label>
+                    <input 
+                        type="date" 
+                        id="startDate"
+                        value={dateFilter.start}
+                        onChange={(e) => setDateFilter(prev => ({ ...prev, start: e.target.value }))}
+                        className="ml-2 border-gray-300 rounded-md shadow-sm"
+                    />
+                </div>
+                 <div>
+                    <label htmlFor="endDate" className="text-sm font-medium text-gray-700">To:</label>
+                    <input 
+                        type="date" 
+                        id="endDate"
+                        value={dateFilter.end}
+                        onChange={(e) => setDateFilter(prev => ({ ...prev, end: e.target.value }))}
+                        className="ml-2 border-gray-300 rounded-md shadow-sm"
+                    />
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-700 flex items-center mb-4"><BarChart className="w-5 h-5 mr-2" />Candidates per Stage</h2>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <ReBarChart data={candidatesPerStageData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="candidates" fill="#3b82f6" />
-                        </ReBarChart>
-                    </ResponsiveContainer>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <StatCard icon={Briefcase} title="Active Processes" value={totalProcesses} color="bg-blue-500" />
+                <StatCard icon={Users} title="Filtered Candidates" value={totalCandidates} color="bg-green-500" />
+                <StatCard icon={FileText} title="Total Applications" value={totalApplications} color="bg-purple-500" />
+                <StatCard icon={CheckCircle} title="Filtered Hired" value={hiredCandidates} color="bg-teal-500" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                 <div className="lg:col-span-3 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Recent Candidates</h2>
+                    <div className="space-y-3">
+                        {filteredCandidates.slice(-5).reverse().map(candidate => {
+                            const process = processes.find(p => p.id === candidate.processId);
+                            return (
+                                <div key={candidate.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    <div>
+                                        <p className="font-medium text-gray-900">{candidate.name}</p>
+                                        <p className="text-sm text-gray-500">{process?.title || 'No Process'}</p>
+                                    </div>
+                                    <span className="text-xs text-gray-400">
+                                        {candidate.history.length > 0 && new Date(candidate.history[0].movedAt).toLocaleDateString()}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-700 flex items-center mb-4"><PieChart className="w-5 h-5 mr-2" />Candidates per Process</h2>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <RePieChart>
-                            <Pie data={processesData} dataKey="candidates" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
-                                {processesData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                            </Pie>
-                            <PieTooltip />
-                            <Legend />
-                        </RePieChart>
-                    </ResponsiveContainer>
+
+                <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Candidate Source</h2>
+                    {candidateSources.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={250}>
+                            <PieChart>
+                                <Pie
+                                    data={candidateSources}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    outerRadius={80}
+                                    fill="#8884d8"
+                                    dataKey="value"
+                                    nameKey="name"
+                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                >
+                                    {candidateSources.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-gray-500">No data for selected filters.</div>
+                    )}
                 </div>
             </div>
+
         </div>
     );
 };
