@@ -1,11 +1,4 @@
-export type UserRole = 'admin' | 'recruiter' | 'viewer' | 'client';
-
-export interface User {
-    id: string;
-    name: string;
-    email: string;
-    role: UserRole;
-}
+// types.ts
 
 export interface Stage {
     id: string;
@@ -28,10 +21,11 @@ export interface Process {
     salaryRange?: string;
     experienceLevel?: string;
     seniority?: string;
-    startDate?: string;
-    endDate?: string;
     flyerUrl?: string;
     attachments: Attachment[];
+    serviceOrderCode?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
 export interface CandidateHistory {
@@ -40,43 +34,46 @@ export interface CandidateHistory {
     movedBy: string;
 }
 
+export type CandidateSource = 'LinkedIn' | 'Referral' | 'Website' | 'Other';
+
 export interface Candidate {
     id: string;
     name: string;
     email: string;
     phone?: string;
-    avatarUrl?: string;
     processId: string;
     stageId: string;
     description?: string;
     history: CandidateHistory[];
+    avatarUrl?: string;
     attachments: Attachment[];
-    notes?: string;
-    source?: 'LinkedIn' | 'Referral' | 'Website' | 'Other';
+    source?: CandidateSource | string;
     salaryExpectation?: string;
     age?: number;
     dni?: string;
     linkedinUrl?: string;
     address?: string;
-    socials?: {
-        github?: string;
-        portfolio?: string;
-    };
 }
 
+export type UserRole = 'admin' | 'recruiter' | 'client' | 'viewer';
+
+export interface User {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+}
+
+// Basic definitions for unused types to satisfy compiler
 export interface Form {
     id: string;
     name: string;
-    processId: string;
 }
 
 export interface Application {
     id: string;
-    candidateName: string;
-    candidateEmail: string;
-    formId: string;
-    submittedAt: string;
-    answers: Record<string, string>;
+    candidateId: string;
+    processId: string;
 }
 
 export interface AppSettings {
@@ -85,18 +82,18 @@ export interface AppSettings {
         apiToken: string;
     };
     fileStorage: {
-        provider: 'Google Drive' | 'None';
+        provider: string;
         connected: boolean;
     };
-    currencySymbol?: string;
-    appName?: string;
-    logoUrl?: string;
-    customLabels?: Record<string, string>;
+    currencySymbol: string;
+    appName: string;
+    logoUrl: string;
+    customLabels: { [key: string]: string };
 }
 
 export interface FormIntegration {
     id: string;
-    platform: 'Tally' | 'Google Forms' | 'Microsoft Forms';
+    platform: 'Tally' | 'Google Forms' | 'Microsoft Forms' | string;
     formName: string;
     formIdOrUrl: string;
     processId: string;

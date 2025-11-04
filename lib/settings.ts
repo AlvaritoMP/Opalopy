@@ -1,4 +1,3 @@
-// Fix: Corrected the type import from 'ApiSettings' to 'AppSettings' as defined in the types.ts file.
 import { AppSettings } from '../types';
 
 const SETTINGS_KEY = 'ats_pro_settings';

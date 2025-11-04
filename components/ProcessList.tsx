@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppState } from '../App';
-import { Plus, MoreVertical, Eye, Edit, Trash2, Users } from 'lucide-react';
+import { Plus, MoreVertical, Eye, Edit, Trash2, Users, FileText } from 'lucide-react';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { Process, UserRole } from '../types';
 
@@ -51,6 +51,12 @@ const ProcessCard: React.FC<{
             <div className="p-4 flex-grow flex flex-col justify-between">
                 <p className="text-sm text-gray-600 mb-4 line-clamp-2">{process.description}</p>
                 <div>
+                    {process.serviceOrderCode && (
+                        <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
+                            <span className="font-medium text-gray-700">OS Code:</span>
+                            <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{process.serviceOrderCode}</span>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
                         <span className="font-medium text-gray-700">Salary Range:</span>
                         <span>{process.salaryRange ? `${state.settings?.currencySymbol || ''}${process.salaryRange.replace(/[$\€£S/]/g, '').trim()}` : 'N/A'}</span>

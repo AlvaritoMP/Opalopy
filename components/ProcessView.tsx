@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { CandidateCard } from './CandidateCard';
-import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText } from 'lucide-react';
+import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList } from 'lucide-react';
 import { AddCandidateModal } from './AddCandidateModal';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { Attachment, UserRole } from '../types';
@@ -118,7 +118,8 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                         </div>
                      )}
                 </div>
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                    {process.serviceOrderCode && <InfoChip icon={ClipboardList} text={`OS: ${process.serviceOrderCode}`} />}
                     {process.seniority && <InfoChip icon={Briefcase} text={process.seniority} />}
                     {process.salaryRange && <InfoChip icon={DollarSign} text={`${state.settings?.currencySymbol || ''}${process.salaryRange.replace(/[$\€£S/]/g, '').trim()}`} />}
                     {process.experienceLevel && <InfoChip icon={BarChart} text={process.experienceLevel} />}

@@ -131,6 +131,7 @@ export const ReportsView: React.FC = () => {
                                     <tr key={candidate.id} className="bg-white border-b hover:bg-gray-50">
                                         {selectedColumns.map(key => (
                                              <td key={key} className="px-6 py-4">
+                                                {/* FIX: Explicitly convert value to string to handle number types and prevent potential errors. */}
                                                 {String(getCandidateValue(candidate, key) || 'N/A')}
                                             </td>
                                         ))}

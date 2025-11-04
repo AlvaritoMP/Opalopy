@@ -62,7 +62,7 @@ export const BulkImportView: React.FC = () => {
         const reader = new FileReader();
         reader.onload = async (event) => {
             const text = event.target?.result as string;
-            // FIX: Moved `parsedCandidates` declaration out of the try block to widen its scope.
+            // FIX: Moved `parsedCandidates` declaration out of the try block to widen its scope for the catch block.
             let parsedCandidates: Omit<Candidate, 'id' | 'history' | 'processId' | 'stageId' | 'attachments'>[] = [];
             try {
                 parsedCandidates = parseCSV(text);

@@ -19,6 +19,7 @@ export const initialProcesses: Process[] = [
         seniority: 'Senior',
         flyerUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c7da?w=800',
         attachments: [],
+        serviceOrderCode: 'OS-2024-FE01',
     },
     {
         id: 'process-2',

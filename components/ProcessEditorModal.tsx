@@ -21,6 +21,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
     const { state, actions, getLabel } = useAppState();
     const [title, setTitle] = useState(process?.title || '');
     const [description, setDescription] = useState(process?.description || '');
+    const [serviceOrderCode, setServiceOrderCode] = useState(process?.serviceOrderCode || '');
     const [salaryRange, setSalaryRange] = useState(process?.salaryRange || '');
     const [experienceLevel, setExperienceLevel] = useState(process?.experienceLevel || '');
     const [seniority, setSeniority] = useState(process?.seniority || '');
@@ -86,7 +87,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         const finalStages = stages.filter(s => s.name.trim() !== '').map((s, i) => ({...s, id: s.id.startsWith('new-') ? `stage-${Date.now()}-${i}` : s.id}));
         if (finalStages.length === 0) { alert('Please add at least one valid stage.'); return; }
 
-        const processData = { title, description, stages: finalStages, salaryRange, experienceLevel, seniority, startDate, endDate, flyerUrl, attachments };
+        const processData = { title, description, serviceOrderCode, stages: finalStages, salaryRange, experienceLevel, seniority, startDate, endDate, flyerUrl, attachments };
 
         if (process) await actions.updateProcess({ ...process, ...processData });
         else await actions.addProcess(processData);
@@ -102,6 +103,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                         {/* Process Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label className="block text-sm font-medium text-gray-700">Process Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} required className="mt-1 block w-full input"/></div>
+                            <div><label className="block text-sm font-medium text-gray-700">Service Order Code (OS)</label><input type="text" placeholder="e.g., OS-2024-001" value={serviceOrderCode} onChange={e => setServiceOrderCode(e.target.value)} className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Salary Range</label><input type="text" placeholder={`${state.settings?.currencySymbol || '$'}100k - ${state.settings?.currencySymbol || '$'}120k`} value={salaryRange} onChange={e => setSalaryRange(e.target.value)} className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Experience Level</label><input type="text" placeholder="e.g., 5+ Years" value={experienceLevel} onChange={e => setExperienceLevel(e.target.value)} className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Seniority</label><input type="text" placeholder="e.g., Senior, Mid-Level" value={seniority} onChange={e => setSeniority(e.target.value)} className="mt-1 block w-full input"/></div>
