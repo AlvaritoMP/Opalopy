@@ -20,7 +20,7 @@ export const CalendarView: React.FC = () => {
             const interviewer = state.users.find(u => u.id === event.interviewerId);
             return {
                 ...event,
-                title: `${candidate?.name || 'Unknown'} with ${interviewer?.name || 'Unknown'}`,
+                title: `${candidate?.name || 'Candidato desconocido'} con ${interviewer?.name || 'Entrevistador desconocido'}`,
             };
         });
     }, [state.interviewEvents, state.candidates, state.users]);
@@ -41,13 +41,13 @@ export const CalendarView: React.FC = () => {
             <div className="flex justify-between items-center mb-8">
                 <h1 className="text-3xl font-bold text-gray-800 flex items-center">
                     <CalendarIcon className="w-8 h-8 mr-3" />
-                    {getLabel('sidebar_calendar', 'Interview Calendar')}
+                    {getLabel('sidebar_calendar', 'Calendario de entrevistas')}
                 </h1>
                 <button
                     onClick={() => { setSelectedEvent(null); setIsScheduling(true); }}
                     className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"
                 >
-                    <Plus className="w-5 h-5 mr-2" /> Schedule Interview
+                    <Plus className="w-5 h-5 mr-2" /> Agendar entrevista
                 </button>
             </div>
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex-1">

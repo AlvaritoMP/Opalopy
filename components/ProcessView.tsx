@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { CandidateCard } from './CandidateCard';
-import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList } from 'lucide-react';
+import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList, Tag, Users } from 'lucide-react';
 import { AddCandidateModal } from './AddCandidateModal';
 import { ProcessEditorModal } from './ProcessEditorModal';
-import { Attachment, UserRole } from '../types';
+import { Attachment, UserRole, ProcessStatus } from '../types';
 
 interface ProcessViewProps {
     processId: string;
@@ -36,7 +36,7 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     const dragPayload = React.useRef<{ candidateId: string; isBulk: boolean } | null>(null);
 
     const process = state.processes.find(p => p.id === processId);
-    const candidates = state.candidates.filter(c => c.processId === processId);
+    const candidates = state.candidates.filter(c => c.processId === processId && !c.archived);
     
     const userRole = state.currentUser?.role as UserRole;
     const canManageProcess = ['admin', 'recruiter'].includes(userRole);
@@ -93,27 +93,47 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
 
     if (!process) return <div className="p-8 text-center">Process not found.</div>;
     
+    const statusLabels: Record<ProcessStatus, string> = {
+        en_proceso: 'En Proceso',
+        standby: 'Stand By',
+        terminado: 'Terminado',
+    };
+
+    const statusColors: Record<ProcessStatus, string> = {
+        en_proceso: 'bg-green-100 text-green-800',
+        standby: 'bg-yellow-100 text-yellow-800',
+        terminado: 'bg-gray-200 text-gray-700',
+    };
+
     const InfoChip: React.FC<{icon: React.ElementType, text: string}> = ({ icon: Icon, text }) => (
         <div className="flex items-center bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
             <Icon className="w-4 h-4 mr-1.5" /> {text}
         </div>
     );
 
+    const currentStatus = process.status || 'en_proceso';
+    const totalVacancies = process.vacancies ?? 0;
+
     return (
         <div className="flex flex-col h-full">
             <header className="p-4 border-b bg-white flex-shrink-0">
                 <div className="flex justify-between items-center mb-3">
-                     <h1 className="text-2xl font-bold text-gray-800">{process.title}</h1>
+                     <div className="flex items-center space-x-3">
+                        <h1 className="text-2xl font-bold text-gray-800">{process.title}</h1>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[currentStatus]}`}>
+                            {statusLabels[currentStatus]}
+                        </span>
+                     </div>
                      {canManageProcess && (
                         <div className="flex items-center space-x-3">
                             <button onClick={() => setIsAttachmentsModalOpen(true)} className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" disabled={!process.attachments?.length}>
-                            <Paperclip className="w-4 h-4 mr-2"/> View Docs ({process.attachments?.length || 0})
+                            <Paperclip className="w-4 h-4 mr-2"/> Ver documentos ({process.attachments?.length || 0})
                             </button>
                             <button onClick={() => setIsProcessEditorOpen(true)} className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
-                                <Edit className="w-4 h-4 mr-2"/> Edit Process
+                                <Edit className="w-4 h-4 mr-2"/> Editar proceso
                             </button>
                             <button onClick={() => setIsAddCandidateOpen(true)} className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700">
-                                <Plus className="w-5 h-5 mr-2" /> Add Candidate
+                                <Plus className="w-5 h-5 mr-2" /> Añadir candidato
                             </button>
                         </div>
                      )}
@@ -123,7 +143,8 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                     {process.seniority && <InfoChip icon={Briefcase} text={process.seniority} />}
                     {process.salaryRange && <InfoChip icon={DollarSign} text={`${state.settings?.currencySymbol || ''}${process.salaryRange.replace(/[$\€£S/]/g, '').trim()}`} />}
                     {process.experienceLevel && <InfoChip icon={BarChart} text={process.experienceLevel} />}
-                    {process.startDate && process.endDate && <InfoChip icon={Clock} text={`${process.startDate} to ${process.endDate}`} />}
+                    {process.startDate && process.endDate && <InfoChip icon={Clock} text={`${process.startDate} a ${process.endDate}`} />}
+                    <InfoChip icon={Users} text={`Vacantes: ${totalVacancies}`} />
                 </div>
             </header>
             <main className="flex-1 flex overflow-x-auto p-4 bg-gray-50/50 space-x-4">

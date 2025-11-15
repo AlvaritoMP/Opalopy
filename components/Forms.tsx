@@ -29,7 +29,7 @@ export const Forms: React.FC = () => {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     
     const handleDelete = (formId: string) => {
-        if (window.confirm('Are you sure you want to delete this integration? This will not delete the form in the original platform.')) {
+        if (window.confirm('¿Seguro que quieres eliminar esta integración? Esto no eliminará el formulario en la plataforma original.')) {
             actions.deleteFormIntegration(formId);
         }
     };
@@ -37,18 +37,18 @@ export const Forms: React.FC = () => {
     return (
         <div className="p-8">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_forms', 'Form Integrations')}</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_forms', 'Integraciones de formularios')}</h1>
                 <button
                     onClick={() => setIsEditorOpen(true)}
                     className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"
                 >
-                    <Plus className="w-5 h-5 mr-2" /> New Integration
+                    <Plus className="w-5 h-5 mr-2" /> Nueva integración
                 </button>
             </div>
             {state.formIntegrations.length === 0 ? (
                  <div className="text-center py-12 bg-white rounded-xl border border-dashed">
-                    <h3 className="text-lg font-medium text-gray-900">No Integrations Found</h3>
-                    <p className="mt-1 text-sm text-gray-500">Connect an external form to start collecting applications.</p>
+                    <h3 className="text-lg font-medium text-gray-900">No se encontraron integraciones</h3>
+                    <p className="mt-1 text-sm text-gray-500">Conecta un formulario externo para empezar a recibir postulaciones.</p>
                     <div className="mt-6">
                         <button
                             onClick={() => setIsEditorOpen(true)}
@@ -56,7 +56,7 @@ export const Forms: React.FC = () => {
                             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
                         >
                             <Plus className="-ml-1 mr-2 h-5 w-5" />
-                            New Integration
+                            Nueva integración
                         </button>
                     </div>
                 </div>
@@ -72,15 +72,15 @@ export const Forms: React.FC = () => {
                                         <div>
                                             <p className="text-sm font-medium text-gray-900">{integration.formName}</p>
                                             <p className="text-sm text-gray-500">
-                                                Linked to: <span className="font-medium">{process?.title || 'Unknown Process'}</span>
+                                                Vinculado a: <span className="font-medium">{process?.title || 'Proceso desconocido'}</span>
                                             </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center space-x-4">
                                          <a href="#" className="text-sm text-primary-600 hover:text-primary-800 flex items-center">
-                                            View Form <ExternalLink className="w-4 h-4 ml-1"/>
+                                            Ver formulario <ExternalLink className="w-4 h-4 ml-1"/>
                                          </a>
-                                         <button onClick={() => handleDelete(integration.id)} className="p-2 rounded-md hover:bg-red-100" title="Delete Integration">
+                                         <button onClick={() => handleDelete(integration.id)} className="p-2 rounded-md hover:bg-red-100" title="Eliminar integración">
                                             <Trash2 className="w-4 h-4 text-red-500" />
                                         </button>
                                     </div>

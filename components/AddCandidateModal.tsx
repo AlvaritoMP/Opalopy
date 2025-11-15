@@ -94,7 +94,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-gray-800">{getLabel('modal_add_candidate', 'Add Candidate to')} {process.title}</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{getLabel('modal_add_candidate', 'Agregar candidato a')} {process.title}</h2>
                         <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
                     </div>
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">
@@ -107,8 +107,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                                 </div>
                             )}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700">Profile Picture</label>
-                                <button type="button" onClick={() => avatarInputRef.current?.click()} className="mt-1 text-sm font-medium text-primary-600 hover:text-primary-800">Upload Photo</button>
+                                <label className="block text-sm font-medium text-gray-700">Foto de perfil</label>
+                                <button type="button" onClick={() => avatarInputRef.current?.click()} className="mt-1 text-sm font-medium text-primary-600 hover:text-primary-800">Subir foto</button>
                                 <input type="file" accept="image/*" ref={avatarInputRef} onChange={handleAvatarUpload} className="hidden" />
                             </div>
                         </div>
@@ -116,16 +116,16 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                         <div><label className="block text-sm font-medium text-gray-700">Full Name</label><input type="text" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Email Address</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 block w-full input"/></div>
                         
-                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Summary / Description</label><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} className="mt-1 block w-full input" /></div>
+                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Resumen / descripción</label><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} className="mt-1 block w-full input" /></div>
 
-                        <div><label className="block text-sm font-medium text-gray-700">Phone Number</label><input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1 block w-full input"/></div>
-                        <div><label className="block text-sm font-medium text-gray-700">Age</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
+                        <div><label className="block text-sm font-medium text-gray-700">Teléfono</label><input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1 block w-full input"/></div>
+                        <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" value={dni} onChange={e => setDni(e.target.value)} className="mt-1 block w-full input"/></div>
-                        <div><label className="block text-sm font-medium text-gray-700">Address / City</label><input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g., New York, NY" className="mt-1 block w-full input"/></div>
-                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Salary Expectation</label><input type="text" value={salaryExpectation} onChange={e => setSalaryExpectation(e.target.value)} placeholder={`${state.settings?.currencySymbol || '$'}100,000`} className="mt-1 block w-full input"/></div>
-                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">LinkedIn Profile URL</label><input type="url" value={linkedinUrl} onChange={e => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/..." className="mt-1 block w-full input"/></div>
+                        <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Ej: Ciudad de México" className="mt-1 block w-full input"/></div>
+                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Expectativa salarial</label><input type="text" value={salaryExpectation} onChange={e => setSalaryExpectation(e.target.value)} placeholder={`${state.settings?.currencySymbol || '$'}100,000`} className="mt-1 block w-full input"/></div>
+                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">URL de LinkedIn</label><input type="url" value={linkedinUrl} onChange={e => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/..." className="mt-1 block w-full input"/></div>
                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Source</label>
+                            <label className="block text-sm font-medium text-gray-700">Fuente</label>
                             <select value={source} onChange={e => setSource(e.target.value as Candidate['source'])} className="mt-1 block w-full input">
                                 <option>LinkedIn</option>
                                 <option>Referral</option>
@@ -149,8 +149,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                         </div>
                     </div>
                      <div className="p-6 bg-gray-50 rounded-b-xl flex justify-end space-x-3">
-                        <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-                        <button type="submit" className="btn-primary">Add Candidate</button>
+                        <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                        <button type="submit" className="btn-primary">Agregar candidato</button>
                     </div>
                 </form>
             </div>

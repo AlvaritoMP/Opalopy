@@ -28,12 +28,22 @@ const ChartContainer: React.FC<{title: string, children: React.ReactNode, hasDat
                 {children}
             </ResponsiveContainer>
         ) : (
-             <div className="flex items-center justify-center h-[250px] text-gray-500">No data for selected filters.</div>
+             <div className="flex items-center justify-center h-[250px] text-gray-500">Sin datos para los filtros seleccionados.</div>
         )}
     </div>
 );
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
+
+const translateSource = (source: string) => {
+    switch (source.toLowerCase()) {
+        case 'linkedin': return 'LinkedIn';
+        case 'referral': return 'Referido';
+        case 'website': return 'Sitio web';
+        case 'other': return 'Otro';
+        default: return source;
+    }
+};
 
 export const Dashboard: React.FC = () => {
     const { state, getLabel } = useAppState();
@@ -72,7 +82,7 @@ export const Dashboard: React.FC = () => {
     const candidateSources = useMemo(() => {
         const sourceMap = new Map<string, number>();
         filteredCandidates.forEach(c => {
-            const source = c.source || 'Other';
+            const source = translateSource(c.source || 'Other');
             sourceMap.set(source, (sourceMap.get(source) || 0) + 1);
         });
         return Array.from(sourceMap, ([name, value]) => ({ name, value }));
@@ -85,7 +95,7 @@ export const Dashboard: React.FC = () => {
                 locationMap.set(c.address, (locationMap.get(c.address) || 0) + 1);
             }
         });
-        return Array.from(locationMap, ([name, value]) => ({ name, Candidates: value }));
+        return Array.from(locationMap, ([name, value]) => ({ name, Candidatos: value }));
     }, [filteredCandidates]);
     
     const ageDistribution = useMemo(() => {
@@ -101,7 +111,7 @@ export const Dashboard: React.FC = () => {
                  ageBrackets['Unknown']++;
             }
         });
-        return Object.entries(ageBrackets).map(([name, value]) => ({ name, Candidates: value }));
+        return Object.entries(ageBrackets).map(([name, value]) => ({ name, Candidatos: value }));
     }, [filteredCandidates]);
 
     const upcomingInterviews = useMemo(() => {
@@ -116,25 +126,25 @@ export const Dashboard: React.FC = () => {
     return (
         <div className="p-8 bg-gray-50/50 min-h-full overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Dashboard')}</h1>
+                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Panel')}</h1>
             </div>
             
             {/* Filters */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-8 flex items-center space-x-4">
                 <div>
-                    <label htmlFor="processFilter" className="text-sm font-medium text-gray-700">Filter by Process:</label>
+                    <label htmlFor="processFilter" className="text-sm font-medium text-gray-700">Filtrar por proceso:</label>
                     <select 
                         id="processFilter"
                         value={processFilter}
                         onChange={(e) => setProcessFilter(e.target.value)}
                         className="ml-2 border-gray-300 rounded-md shadow-sm"
                     >
-                        <option value="all">All Processes</option>
+                        <option value="all">Todos los procesos</option>
                         {processes.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="startDate" className="text-sm font-medium text-gray-700">From:</label>
+                    <label htmlFor="startDate" className="text-sm font-medium text-gray-700">Desde:</label>
                     <input 
                         type="date" 
                         id="startDate"
@@ -144,7 +154,7 @@ export const Dashboard: React.FC = () => {
                     />
                 </div>
                  <div>
-                    <label htmlFor="endDate" className="text-sm font-medium text-gray-700">To:</label>
+                    <label htmlFor="endDate" className="text-sm font-medium text-gray-700">Hasta:</label>
                     <input 
                         type="date" 
                         id="endDate"
@@ -157,15 +167,15 @@ export const Dashboard: React.FC = () => {
 
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <StatCard icon={Briefcase} title="Active Processes" value={totalProcesses} color="bg-blue-500" />
-                <StatCard icon={Users} title="Filtered Candidates" value={totalCandidates} color="bg-green-500" />
-                <StatCard icon={FileText} title="Total Applications" value={totalApplications} color="bg-purple-500" />
-                <StatCard icon={CheckCircle} title="Filtered Hired" value={hiredCandidates} color="bg-teal-500" />
+                <StatCard icon={Briefcase} title="Procesos activos" value={totalProcesses} color="bg-blue-500" />
+                <StatCard icon={Users} title="Candidatos filtrados" value={totalCandidates} color="bg-green-500" />
+                <StatCard icon={FileText} title="Aplicaciones totales" value={totalApplications} color="bg-purple-500" />
+                <StatCard icon={CheckCircle} title="Contratados filtrados" value={hiredCandidates} color="bg-teal-500" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                  <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h2 className="text-xl font-semibold text-gray-800 mb-4">{getLabel('dashboard_recent_candidates', 'Recent Candidates')}</h2>
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4">{getLabel('dashboard_recent_candidates', 'Candidatos recientes')}</h2>
                     <div className="space-y-3">
                         {filteredCandidates.slice(-5).reverse().map(candidate => {
                             const process = processes.find(p => p.id === candidate.processId);
@@ -173,7 +183,7 @@ export const Dashboard: React.FC = () => {
                                 <div key={candidate.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                     <div>
                                         <p className="font-medium text-gray-900">{candidate.name}</p>
-                                        <p className="text-sm text-gray-500">{process?.title || 'No Process'}</p>
+                                        <p className="text-sm text-gray-500">{process?.title || 'Sin proceso'}</p>
                                     </div>
                                     <span className="text-xs text-gray-400">
                                         {candidate.history.length > 0 && new Date(candidate.history[0].movedAt).toLocaleDateString()}
@@ -181,11 +191,11 @@ export const Dashboard: React.FC = () => {
                                 </div>
                             );
                         })}
-                         {filteredCandidates.length === 0 && <p className="text-center text-gray-500 py-8">No recent candidates match the filters.</p>}
+                        {filteredCandidates.length === 0 && <p className="text-center text-gray-500 py-8">No hay candidatos recientes que coincidan con los filtros.</p>}
                     </div>
                 </div>
 
-                <ChartContainer title={getLabel('dashboard_candidate_source', 'Candidate Source')} hasData={candidateSources.length > 0} className="lg:col-span-1">
+                <ChartContainer title={getLabel('dashboard_candidate_source', 'Fuentes de candidatos')} hasData={candidateSources.length > 0} className="lg:col-span-1">
                     <PieChart>
                         <Pie
                             data={candidateSources}
@@ -209,30 +219,30 @@ export const Dashboard: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 <ChartContainer title={getLabel('dashboard_candidate_locations', 'Candidate Locations')} hasData={candidateLocations.length > 0}>
+                <ChartContainer title={getLabel('dashboard_candidate_locations', 'Ubicación de candidatos')} hasData={candidateLocations.length > 0}>
                     <BarChart data={candidateLocations} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis type="number" />
                         <YAxis type="category" dataKey="name" width={100} />
                         <Tooltip />
-                        <Bar dataKey="Candidates" fill="#8884d8" />
+                        <Bar dataKey="Candidatos" fill="#8884d8" />
                     </BarChart>
                 </ChartContainer>
                 
-                <ChartContainer title={getLabel('dashboard_age_distribution', 'Age Distribution')} hasData={ageDistribution.some(d => d.Candidates > 0)}>
+                <ChartContainer title={getLabel('dashboard_age_distribution', 'Distribución por edad')} hasData={ageDistribution.some(d => d.Candidatos > 0)}>
                     <BarChart data={ageDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis />
                         <Tooltip />
-                        <Bar dataKey="Candidates" fill="#82ca9d" />
+                        <Bar dataKey="Candidatos" fill="#82ca9d" />
                     </BarChart>
                 </ChartContainer>
             </div>
             
             <div className="mt-8">
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center"><Calendar className="w-5 h-5 mr-3 text-primary-500" /> {getLabel('dashboard_upcoming_interviews', 'Upcoming Interviews')}</h2>
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center"><Calendar className="w-5 h-5 mr-3 text-primary-500" /> {getLabel('dashboard_upcoming_interviews', 'Próximas entrevistas')}</h2>
                     <div className="space-y-3">
                         {upcomingInterviews.length > 0 ? (
                             upcomingInterviews.map(event => {
@@ -241,8 +251,8 @@ export const Dashboard: React.FC = () => {
                                 return (
                                     <div key={event.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                         <div>
-                                            <p className="font-medium text-gray-900">{candidate?.name || 'Unknown Candidate'}</p>
-                                            <p className="text-sm text-gray-500">with {interviewer?.name || 'Unknown Interviewer'}</p>
+                                            <p className="font-medium text-gray-900">{candidate?.name || 'Candidato desconocido'}</p>
+                                            <p className="text-sm text-gray-500">con {interviewer?.name || 'Entrevistador desconocido'}</p>
                                         </div>
                                         <div className="text-right flex-shrink-0 ml-4">
                                             <p className="text-sm font-medium text-gray-700">{event.start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>
@@ -252,7 +262,7 @@ export const Dashboard: React.FC = () => {
                                 );
                             })
                         ) : (
-                            <p className="text-center text-gray-500 py-8">No upcoming interviews scheduled.</p>
+                            <p className="text-center text-gray-500 py-8">No hay entrevistas próximas programadas.</p>
                         )}
                     </div>
                 </div>
