@@ -12,7 +12,8 @@ import { Forms } from './components/Forms';
 import { CalendarView } from './components/CalendarView';
 import { BulkImportView } from './components/BulkImportView';
 import { Spinner } from './components/Spinner';
-import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X } from 'lucide-react';
+import { ArchivedCandidates } from './components/ArchivedCandidates';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive } from 'lucide-react';
 
 
 // State and Actions types
@@ -32,7 +33,7 @@ interface AppState {
 interface AppActions {
     login: (email: string, password: string) => Promise<boolean>;
     logout: () => void;
-    addProcess: (processData: Omit<Process, 'id' | 'attachments'>) => Promise<void>;
+    addProcess: (processData: Omit<Process, 'id'>) => Promise<void>;
     updateProcess: (processData: Process) => Promise<void>;
     deleteProcess: (processId: string) => Promise<void>;
     addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<void>;
@@ -53,6 +54,8 @@ interface AppActions {
     deletePostIt: (candidateId: string, postItId: string) => Promise<void>;
     addComment: (candidateId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => Promise<void>;
     deleteComment: (candidateId: string, commentId: string) => Promise<void>;
+    archiveCandidate: (candidateId: string) => Promise<void>;
+    restoreCandidate: (candidateId: string) => Promise<void>;
     setView: (type: string, payload?: any) => void;
 }
 
@@ -251,17 +254,18 @@ const Sidebar: React.FC = () => {
                 </button>
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-                <NavItem icon={LayoutDashboard} label={getLabel('sidebar_dashboard', 'Dashboard')} view="dashboard" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                <NavItem icon={Briefcase} label={getLabel('sidebar_processes', 'Processes')} view="processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                <NavItem icon={FileText} label={getLabel('sidebar_forms', 'Forms')} view="forms" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                <NavItem icon={Calendar} label={getLabel('sidebar_calendar', 'Calendar')} view="calendar" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                <NavItem icon={BarChart2} label={getLabel('sidebar_reports', 'Reports')} view="reports" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                <NavItem icon={FileUp} label={getLabel('sidebar_bulk_import', 'Bulk Import')} view="bulk-import" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={LayoutDashboard} label={getLabel('sidebar_dashboard', 'Panel')} view="dashboard" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={Briefcase} label={getLabel('sidebar_processes', 'Procesos')} view="processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={Archive} label={getLabel('sidebar_archived', 'Archivados')} view="archived" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={FileText} label={getLabel('sidebar_forms', 'Formularios')} view="forms" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={Calendar} label={getLabel('sidebar_calendar', 'Calendario')} view="calendar" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={BarChart2} label={getLabel('sidebar_reports', 'Reportes')} view="reports" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                <NavItem icon={FileUp} label={getLabel('sidebar_bulk_import', 'Importación Masiva')} view="bulk-import" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
             </nav>
             <div className="p-2 border-t space-y-2">
                  <div className="p-2">
-                    <NavItem icon={UsersIcon} label={getLabel('sidebar_users', 'Users')} view="users" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
-                    <NavItem icon={SettingsIcon} label="Settings" view="settings" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                    <NavItem icon={UsersIcon} label={getLabel('sidebar_users', 'Usuarios')} view="users" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
+                    <NavItem icon={SettingsIcon} label={getLabel('sidebar_settings', 'Configuración')} view="settings" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />
                 </div>
                  <div className="p-2 border-t">
                     <div className="flex items-center">
@@ -342,7 +346,7 @@ const App: React.FC = () => {
             setState(s => ({ ...s, settings }));
         },
         addProcess: async (processData) => {
-            const newProcess: Process = { ...processData, id: `proc-${Date.now()}`, attachments: [] };
+            const newProcess: Process = { ...processData, id: `proc-${Date.now()}`, attachments: processData.attachments || [] };
             setState(s => ({ ...s, processes: [...s.processes, newProcess] }));
         },
         updateProcess: async (processData) => {
@@ -363,7 +367,8 @@ const App: React.FC = () => {
                     stageId: candidateData.stageId,
                     movedAt: new Date().toISOString(),
                     movedBy: state.currentUser?.name || 'System',
-                }]
+                }],
+                archived: false,
             };
             setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
         },
@@ -434,7 +439,8 @@ const App: React.FC = () => {
                         stageId: firstStageId,
                         movedAt: new Date().toISOString(),
                         movedBy: `Duplicated from ${s.processes.find(p => p.id === originalCandidate.processId)?.title || 'another process'} by ${movedBy}`
-                    }]
+                    }],
+                    archived: false,
                 };
                 
                 return { ...s, candidates: [...s.candidates, newCandidate] };
@@ -527,6 +533,18 @@ const App: React.FC = () => {
                 return { ...s, candidates: s.candidates.map(c => c.id === candidateId ? updatedCandidate : c) };
             });
         },
+        archiveCandidate: async (candidateId) => {
+            setState(s => ({
+                ...s,
+                candidates: s.candidates.map(c => c.id === candidateId ? { ...c, archived: true, archivedAt: new Date().toISOString() } : c)
+            }));
+        },
+        restoreCandidate: async (candidateId) => {
+            setState(s => ({
+                ...s,
+                candidates: s.candidates.map(c => c.id === candidateId ? { ...c, archived: false, archivedAt: undefined } : c)
+            }));
+        },
     }), [state.currentUser, state.users]);
 
     const getLabel = (key: string, fallback: string): string => {
@@ -544,6 +562,7 @@ const App: React.FC = () => {
             case 'users': return <Users />;
             case 'settings': return <Settings />;
             case 'bulk-import': return <BulkImportView />;
+            case 'archived': return <ArchivedCandidates />;
             default: return <Dashboard />;
         }
     };

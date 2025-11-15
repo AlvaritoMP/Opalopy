@@ -13,6 +13,8 @@ export interface Attachment {
     size: number;
 }
 
+export type ProcessStatus = 'en_proceso' | 'standby' | 'terminado';
+
 export interface Process {
     id: string;
     title: string;
@@ -26,6 +28,8 @@ export interface Process {
     serviceOrderCode?: string;
     startDate?: string;
     endDate?: string;
+    status: ProcessStatus;
+    vacancies: number;
 }
 
 export interface CandidateHistory {
@@ -71,6 +75,9 @@ export interface Candidate {
     address?: string;
     postIts?: PostIt[]; // Post-its para el board
     comments?: Comment[]; // Comentarios/chat sobre el candidato
+    archived?: boolean;
+    archivedAt?: string;
+    hireDate?: string;
 }
 
 export type UserRole = 'admin' | 'recruiter' | 'client' | 'viewer';
@@ -81,6 +88,7 @@ export interface User {
     email: string;
     role: UserRole;
     password?: string;
+    avatarUrl?: string;
 }
 
 // Basic definitions for unused types to satisfy compiler

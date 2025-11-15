@@ -15,6 +15,7 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
     const [role, setRole] = useState<UserRole>(user?.role || 'viewer');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -24,7 +25,7 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
             return;
         }
 
-        const userData: Partial<User> = { name, email, role };
+        const userData: Partial<User> = { name, email, role, avatarUrl };
 
         if (password) {
             userData.password = password;
@@ -54,14 +55,24 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 border-b flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-gray-800">{user ? getLabel('modal_edit_user', 'Edit User') : getLabel('modal_add_user', 'Add New User')}</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{user ? getLabel('modal_edit_user', 'Editar usuario') : getLabel('modal_add_user', 'Agregar usuario')}</h2>
                         <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
                             <X className="w-6 h-6 text-gray-600" />
                         </button>
                     </div>
                     <div className="p-6 space-y-4">
                         <div>
-                            <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
+                            <label className="block text-sm font-medium text-gray-700">Foto de perfil (URL)</label>
+                            <input
+                                type="url"
+                                value={avatarUrl}
+                                onChange={e => setAvatarUrl(e.target.value)}
+                                placeholder="https://..."
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="name" className="block text-sm font-medium text-gray-700">Nombre completo</label>
                             <input
                                 type="text"
                                 id="name"
@@ -72,7 +83,7 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
                             />
                         </div>
                         <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
+                            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Correo electrónico</label>
                             <input
                                 type="email"
                                 id="email"
@@ -83,20 +94,20 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
                             />
                         </div>
                         <div>
-                            <label htmlFor="role" className="block text-sm font-medium text-gray-700">Role</label>
+                            <label htmlFor="role" className="block text-sm font-medium text-gray-700">Rol</label>
                             <select
                                 id="role"
                                 value={role}
                                 onChange={e => setRole(e.target.value as UserRole)}
                                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
                             >
-                                {roleOptions.map(option => (
+                        {roleOptions.map(option => (
                                     <option key={option.value} value={option.value}>{option.label}</option>
                                 ))}
                             </select>
                         </div>
-                         <div>
-                            <label htmlFor="password"className="block text-sm font-medium text-gray-700">Password</label>
+                        <div>
+                            <label htmlFor="password"className="block text-sm font-medium text-gray-700">Contraseña</label>
                             <input
                                 type="password"
                                 id="password"
@@ -107,8 +118,8 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
                                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
                             />
                         </div>
-                         <div>
-                            <label htmlFor="confirmPassword"className="block text-sm font-medium text-gray-700">Confirm Password</label>
+                        <div>
+                            <label htmlFor="confirmPassword"className="block text-sm font-medium text-gray-700">Confirmar contraseña</label>
                             <input
                                 type="password"
                                 id="confirmPassword"
@@ -120,8 +131,8 @@ export const UserEditorModal: React.FC<UserEditorModalProps> = ({ user, onClose 
                         </div>
                     </div>
                     <div className="p-6 bg-gray-50 rounded-b-xl flex justify-end space-x-3">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium">Cancel</button>
-                        <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm text-sm font-medium">{user ? 'Save Changes' : 'Add User'}</button>
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium">Cancelar</button>
+                        <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm text-sm font-medium">{user ? 'Guardar cambios' : 'Agregar usuario'}</button>
                     </div>
                 </form>
             </div>

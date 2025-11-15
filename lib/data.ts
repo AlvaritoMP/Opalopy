@@ -20,6 +20,8 @@ export const initialProcesses: Process[] = [
         flyerUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c7da?w=800',
         attachments: [],
         serviceOrderCode: 'OS-2024-FE01',
+        status: 'en_proceso',
+        vacancies: 3,
     },
     {
         id: 'process-2',
@@ -37,6 +39,8 @@ export const initialProcesses: Process[] = [
         seniority: 'Mid-Level',
         flyerUrl: 'https://images.unsplash.com/photo-1557862921-37829c790f19?w=800',
         attachments: [],
+        status: 'standby',
+        vacancies: 2,
     }
 ];
 
@@ -67,7 +71,8 @@ export const initialCandidates: Candidate[] = [
         age: 32,
         dni: '12345678A',
         linkedinUrl: 'https://linkedin.com/in/alicejohnson',
-        address: 'New York, NY'
+        address: 'New York, NY',
+        archived: false,
     },
     {
         id: 'candidate-2',
@@ -87,7 +92,8 @@ export const initialCandidates: Candidate[] = [
         age: 28,
         dni: '87654321B',
         linkedinUrl: 'https://linkedin.com/in/bobwilliams',
-        address: 'San Francisco, CA'
+        address: 'San Francisco, CA',
+        archived: false,
     },
     {
         id: 'candidate-3',
@@ -106,7 +112,8 @@ export const initialCandidates: Candidate[] = [
         age: 29,
         dni: '45678912C',
         linkedinUrl: 'https://linkedin.com/in/charliebrown',
-        address: 'Austin, TX'
+        address: 'Austin, TX',
+        archived: false,
     },
      {
         id: 'candidate-4',
@@ -126,7 +133,8 @@ export const initialCandidates: Candidate[] = [
         age: 35,
         dni: '78912345D',
         linkedinUrl: 'https://linkedin.com/in/dianaprince',
-        address: 'Chicago, IL'
+        address: 'Chicago, IL',
+        archived: false,
     },
 ];
 

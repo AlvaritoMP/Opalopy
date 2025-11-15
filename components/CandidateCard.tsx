@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Candidate } from '../types';
-import { User, StickyNote } from 'lucide-react';
+import { User, StickyNote, Copy, Phone, MessageCircle, PhoneCall } from 'lucide-react';
 import { CandidateDetailsModal } from './CandidateDetailsModal';
 import { PostItModal } from './PostItModal';
 
@@ -35,6 +35,16 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, isSelec
 
     const postIts = candidate.postIts || [];
     const hasPostIts = postIts.length > 0;
+
+    const normalizedPhone = candidate.phone ? candidate.phone.replace(/[^\d]/g, '') : '';
+
+    const handleCopyPhone = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!candidate.phone) return;
+        navigator.clipboard.writeText(candidate.phone).then(() => {
+            // Optionally add toast later
+        });
+    };
 
     const colorClasses = {
         yellow: 'bg-yellow-200',
@@ -83,6 +93,47 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, isSelec
                                 )}
                             </button>
                         </div>
+
+                        {candidate.phone && (
+                            <div className="flex items-center space-x-2 mt-1">
+                                <p className="text-xs text-gray-600 truncate flex-1">{candidate.phone}</p>
+                                <div className="flex items-center space-x-1 text-gray-500">
+                                    <button
+                                        onClick={handleCopyPhone}
+                                        className="p-1 rounded hover:bg-gray-100"
+                                        title="Copiar teléfono"
+                                    >
+                                        <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                    <a
+                                        href={`tel:${candidate.phone}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1 rounded hover:bg-gray-100"
+                                        title="Llamar"
+                                    >
+                                        <Phone className="w-3.5 h-3.5" />
+                                    </a>
+                                    <a
+                                        href={`https://wa.me/${normalizedPhone}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1 rounded hover:bg-gray-100"
+                                        title="Mensaje WhatsApp"
+                                    >
+                                        <MessageCircle className="w-3.5 h-3.5" />
+                                    </a>
+                                    <a
+                                        href={`whatsapp://call?phone=${normalizedPhone}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1 rounded hover:bg-gray-100"
+                                        title="Llamada WhatsApp"
+                                    >
+                                        <PhoneCall className="w-3.5 h-3.5" />
+                                    </a>
+                                </div>
+                            </div>
+                        )}
                         
                         {/* Mostrar post-its en miniatura */}
                         {hasPostIts && (

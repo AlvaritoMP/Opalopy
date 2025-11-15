@@ -1,10 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { useAppState } from '../App';
 import { Candidate, Attachment, InterviewEvent, UserRole } from '../types';
-import { X, Mail, Phone, Linkedin, User, FileText, Eye, Download, Upload, Trash2, Briefcase, DollarSign, Calendar, Info, MapPin, Edit, ArrowRightLeft } from 'lucide-react';
+import { X, Mail, Phone, Linkedin, User, FileText, Eye, Download, Upload, Trash2, Briefcase, DollarSign, Calendar, Info, MapPin, Edit, ArrowRightLeft, Copy, MessageCircle, PhoneCall, Archive, Undo2 } from 'lucide-react';
 import { ScheduleInterviewModal } from './ScheduleInterviewModal';
 import { ChangeProcessModal } from './ChangeProcessModal';
 import { CandidateCommentsModal } from './CandidateCommentsModal';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -29,6 +31,19 @@ const DetailItem: React.FC<{icon: React.ElementType, label: string, value?: stri
     </div>
 );
 
+const addAttachmentToZip = async (folder: JSZip, attachment: Attachment) => {
+    if (!attachment.url) return;
+    const filename = attachment.name || `archivo-${Date.now()}`;
+    if (attachment.url.startsWith('data:')) {
+        const base64 = attachment.url.split(',')[1];
+        folder.file(filename, base64, { base64: true });
+    } else {
+        const response = await fetch(attachment.url);
+        const blob = await response.blob();
+        folder.file(filename, blob);
+    }
+};
+
 
 export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: () => void }> = ({ candidate: initialCandidate, onClose }) => {
     const { state, actions } = useAppState();
@@ -41,6 +56,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [editingEvent, setEditingEvent] = useState<InterviewEvent | null>(null);
     const [isChangeProcessModalOpen, setIsChangeProcessModalOpen] = useState(false);
     const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +65,18 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const candidateEvents = state.interviewEvents.filter(e => e.candidateId === initialCandidate.id);
 
     const canEdit = ['admin', 'recruiter'].includes(state.currentUser?.role as UserRole);
+    const currentCandidate = isEditing ? editableCandidate : initialCandidate;
+    const isArchived = !!currentCandidate.archived;
+    const processStages = process?.stages || [];
+    const presentationStageIndex = processStages.findIndex(stage => stage.name.toLowerCase().includes('present'));
+    const currentStageIndex = processStages.findIndex(stage => stage.id === currentCandidate.stageId);
+    const canEditHireDate = presentationStageIndex !== -1 && currentStageIndex !== -1 && currentStageIndex >= presentationStageIndex;
+    const normalizedPhone = currentCandidate.phone ? currentCandidate.phone.replace(/[^\d]/g, '') : '';
+
+    const handleCopyPhone = () => {
+        if (!currentCandidate.phone) return;
+        navigator.clipboard.writeText(currentCandidate.phone);
+    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -114,6 +142,93 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         }
     };
 
+    const handleArchiveToggle = async () => {
+        if (isArchived) {
+            await actions.restoreCandidate(initialCandidate.id);
+        } else {
+            const confirmArchive = window.confirm('¿Deseas archivar a este candidato? No aparecerá en el board hasta que lo restaures.');
+            if (!confirmArchive) return;
+            await actions.archiveCandidate(initialCandidate.id);
+        }
+        onClose();
+    };
+
+    const handleExportZip = async () => {
+        try {
+            setIsExporting(true);
+            const zip = new JSZip();
+            const infoFolder = zip.folder('informacion');
+            const attachmentsFolder = zip.folder('adjuntos');
+
+            const stageName = processStages.find(stage => stage.id === currentCandidate.stageId)?.name || 'Etapa desconocida';
+            const candidateInfo = {
+                id: currentCandidate.id,
+                name: currentCandidate.name,
+                email: currentCandidate.email,
+                phone: currentCandidate.phone,
+                process: process?.title || '',
+                stage: stageName,
+                archived: currentCandidate.archived || false,
+                archivedAt: currentCandidate.archivedAt,
+                hireDate: currentCandidate.hireDate,
+                description: currentCandidate.description,
+                source: currentCandidate.source,
+                salaryExpectation: currentCandidate.salaryExpectation,
+                age: currentCandidate.age,
+                dni: currentCandidate.dni,
+                linkedinUrl: currentCandidate.linkedinUrl,
+                address: currentCandidate.address,
+                history: currentCandidate.history,
+                postIts: currentCandidate.postIts,
+                comments: currentCandidate.comments?.map(comment => ({
+                    ...comment,
+                    attachments: comment.attachments?.map(att => ({
+                        id: att.id,
+                        name: att.name,
+                        type: att.type,
+                        size: att.size,
+                        path: `adjuntos/comentarios/${comment.id}/${att.name}`
+                    }))
+                })),
+                attachments: currentCandidate.attachments.map(att => ({
+                    id: att.id,
+                    name: att.name,
+                    type: att.type,
+                    size: att.size,
+                    path: `adjuntos/${att.name}`
+                })),
+            };
+
+            infoFolder?.file('candidate.json', JSON.stringify(candidateInfo, null, 2));
+
+            // Candidate attachments
+            if (currentCandidate.attachments.length && attachmentsFolder) {
+                await Promise.all(
+                    currentCandidate.attachments.map(att => addAttachmentToZip(attachmentsFolder, att))
+                );
+            }
+
+            // Comment attachments
+            if (currentCandidate.comments && attachmentsFolder) {
+                for (const comment of currentCandidate.comments) {
+                    if (!comment.attachments || !comment.attachments.length) continue;
+                    const commentFolder = attachmentsFolder.folder(`comentarios/${comment.id}`);
+                    if (!commentFolder) continue;
+                    await Promise.all(comment.attachments.map(att => addAttachmentToZip(commentFolder, att)));
+                }
+            }
+
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const safeName = currentCandidate.name.replace(/[^a-z0-9_-]/gi, '_');
+            saveAs(blob, `${safeName || currentCandidate.id}_info.zip`);
+        } catch (error) {
+            console.error('Error exporting candidate ZIP:', error);
+            alert('No se pudo exportar la información. Intenta nuevamente.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     if (!process) return null;
     
     const TabButton: React.FC<{tabId: 'details' | 'history' | 'schedule' | 'comments', children: React.ReactNode}> = ({tabId, children}) => (
@@ -123,12 +238,10 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         >{children}</button>
     );
 
-    const currentCandidate = isEditing ? editableCandidate : initialCandidate;
-
     return (
         <>
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[1400px] flex flex-col max-h-[92vh]">
                 <header className="p-4 border-b flex justify-between items-center flex-shrink-0">
                     <div className="flex items-center space-x-4">
                         <div className="relative group">
@@ -145,11 +258,35 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             <input type="file" accept="image/*" ref={avatarInputRef} onChange={handleAvatarUpload} className="hidden" />
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-800">{currentCandidate.name}</h2>
+                            <div className="flex items-center space-x-3">
+                                <h2 className="text-2xl font-bold text-gray-800">{currentCandidate.name}</h2>
+                                {isArchived && (
+                                    <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold">
+                                        Archivado
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-sm text-gray-500">Applied for: {process.title}</p>
                         </div>
                     </div>
                     <div className="flex items-center space-x-2">
+                        <button
+                            onClick={handleExportZip}
+                            disabled={isExporting}
+                            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            {isExporting ? 'Exportando...' : 'Exportar ZIP'}
+                        </button>
+                        {canEdit && (
+                            <button
+                                onClick={handleArchiveToggle}
+                                className={`flex items-center px-3 py-1.5 border rounded-md text-sm font-medium ${isArchived ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
+                            >
+                                {isArchived ? <Undo2 className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
+                                {isArchived ? 'Restaurar' : 'Archivar'}
+                            </button>
+                        )}
                         {canEdit && !isEditing && (
                             <>
                                 <button onClick={() => setIsChangeProcessModalOpen(true)} className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50" title="Move or Duplicate Candidate">
@@ -180,7 +317,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 </div>
                 <main className="flex-1 overflow-y-auto">
                    {activeTab === 'details' && (
-                        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[0.8fr_1.8fr] gap-6">
                             {/* Left Column - Details */}
                             <div className="space-y-6">
                                 {isEditing ? (
@@ -194,6 +331,22 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                 <div><label className="block text-sm font-medium text-gray-700">Age</label><input type="number" name="age" value={editableCandidate.age || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" name="dni" value={editableCandidate.dni || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Address / City</label><input type="text" name="address" value={editableCandidate.address || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700">Fecha de contratación</label>
+                                                    <input
+                                                        type="date"
+                                                        name="hireDate"
+                                                        value={editableCandidate.hireDate || ''}
+                                                        onChange={handleInputChange}
+                                                        disabled={!canEditHireDate}
+                                                        className={`mt-1 block w-full input ${!canEditHireDate ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                    />
+                                                    {!canEditHireDate && (
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            Disponible cuando el candidato supere la etapa de “Presentación”.
+                                                        </p>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div><label className="block text-sm font-medium text-gray-700">LinkedIn URL</label><input type="url" name="linkedinUrl" value={editableCandidate.linkedinUrl || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -212,15 +365,54 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                         {/* View Details */}
                                         <div className="p-4 bg-gray-50 rounded-lg border">
                                             <h3 className="font-semibold text-gray-700 mb-3">Contact & Personal Info</h3>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <DetailItem icon={Mail} label="Email" value={currentCandidate.email} href={`mailto:${currentCandidate.email}`} />
-                                                <DetailItem icon={Phone} label="Phone" value={currentCandidate.phone} />
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-start text-sm">
+                                                        <Phone className="w-4 h-4 mr-3 mt-0.5 text-gray-400 flex-shrink-0" />
+                                                        <div className="flex-1">
+                                                            <span className="font-medium text-gray-700">Phone: </span>
+                                                            <span className="text-gray-600">{currentCandidate.phone || 'N/A'}</span>
+                                                        </div>
+                                                    </div>
+                                                    {currentCandidate.phone && (
+                                                        <div className="flex flex-wrap items-center gap-2 mt-2 ml-7">
+                                                            <button
+                                                                onClick={handleCopyPhone}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                            >
+                                                                <Copy className="w-3.5 h-3.5" /> Copiar
+                                                            </button>
+                                                            <a
+                                                                href={`tel:${currentCandidate.phone}`}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-primary-200 text-xs font-medium text-primary-700 hover:bg-primary-50"
+                                                            >
+                                                                <Phone className="w-3.5 h-3.5" /> Llamar
+                                                            </a>
+                                                            <a
+                                                                href={`https://wa.me/${normalizedPhone}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-green-200 text-xs font-medium text-green-700 hover:bg-green-50"
+                                                            >
+                                                                <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                                                            </a>
+                                                            <a
+                                                                href={`whatsapp://call?phone=${normalizedPhone}`}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-green-200 text-xs font-medium text-green-700 hover:bg-green-50"
+                                                            >
+                                                                <PhoneCall className="w-3.5 h-3.5" /> Llamada WA
+                                                            </a>
+                                                        </div>
+                                                    )}
+                                                </div>
                                                 <DetailItem icon={Linkedin} label="LinkedIn" value={currentCandidate.linkedinUrl} href={currentCandidate.linkedinUrl} />
                                                 <DetailItem icon={Calendar} label="Age" value={currentCandidate.age} />
                                                 <DetailItem icon={Info} label="DNI" value={currentCandidate.dni} />
                                                 <DetailItem icon={Briefcase} label="Source" value={currentCandidate.source} />
                                                 <DetailItem icon={MapPin} label="Address" value={currentCandidate.address} />
                                                 <DetailItem icon={DollarSign} label="Salary Expectation" value={currentCandidate.salaryExpectation ? `${state.settings?.currencySymbol || ''}${currentCandidate.salaryExpectation.replace(/[$\€£S/]/g, '').trim()}` : 'N/A'} />
+                                                    <DetailItem icon={Calendar} label="Fecha de contratación" value={currentCandidate.hireDate ? new Date(currentCandidate.hireDate).toLocaleDateString('es-ES') : undefined} />
                                             </div>
                                         </div>
                                         {currentCandidate.description && (
@@ -232,9 +424,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                     </>
                                 )}
                                 
-                                <div>
+                                <div className="flex flex-col h-full max-w-full">
                                     <h3 className="font-semibold text-gray-700 mb-2">Attachments</h3>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                         {currentCandidate.attachments.map(att => (
                                             <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-white hover:bg-gray-50">
                                                 <div className="flex items-center overflow-hidden"><FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" /><p className="text-sm font-medium text-gray-800 truncate">{att.name}</p></div>
@@ -251,13 +443,13 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                 </div>
                             </div>
                             {/* Right Column - Preview */}
-                            <div className="bg-gray-100 rounded-lg border flex flex-col items-center justify-center p-4 min-h-[400px]">
+                            <div className="bg-gray-100 rounded-xl border flex flex-col items-center justify-center p-4 min-h-[620px]">
                                 {previewFile ? (
                                     <div className="w-full h-full">
                                     {previewFile.type.startsWith('image/') ? (
-                                        <img src={previewFile.url} alt={previewFile.name} className="max-w-full max-h-full object-contain" />
+                                        <img src={previewFile.url} alt={previewFile.name} className="w-full h-full object-contain" />
                                     ) : previewFile.type === 'application/pdf' ? (
-                                        <iframe src={previewFile.url} title={previewFile.name} className="w-full h-full border-0" />
+                                        <iframe src={previewFile.url} title={previewFile.name} className="w-full h-full border-0 rounded-lg bg-white" />
                                     ) : (
                                         <div className="text-center">
                                             <FileText className="w-16 h-16 mx-auto text-gray-400" />
