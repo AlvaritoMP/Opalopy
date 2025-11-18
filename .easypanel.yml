@@ -1,0 +1,8 @@
+# Configuración para Easypanel
+# Esto fuerza el uso del Dockerfile en lugar de Nixpacks
+
+build:
+  type: dockerfile
+  dockerfile: Dockerfile
+  context: .
+
