@@ -18,6 +18,43 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
     const [success, setSuccess] = useState<string | null>(null);
 
     useEffect(() => {
+        // Manejar el callback de OAuth desde la URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const driveConnected = urlParams.get('drive_connected');
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+        const tokenExpiry = urlParams.get('expires_in');
+        const userEmail = urlParams.get('user_email');
+        const userName = urlParams.get('user_name');
+        const rootFolderId = urlParams.get('root_folder_id');
+
+        if (driveConnected === 'true' && accessToken) {
+            const newConfig: GoogleDriveConfig = {
+                connected: true,
+                accessToken: accessToken,
+                refreshToken: refreshToken || config?.refreshToken,
+                tokenExpiry: tokenExpiry ? new Date(Date.now() + parseInt(tokenExpiry) * 1000).toISOString() : config?.tokenExpiry,
+                userEmail: userEmail || config?.userEmail,
+                userName: userName || config?.userName,
+                rootFolderId: rootFolderId || config?.rootFolderId,
+            };
+            googleDriveService.setTokens(accessToken, refreshToken || '');
+            onConfigChange(newConfig);
+            setSuccess('Conectado exitosamente a Google Drive');
+            setIsConnecting(false);
+            
+            // Limpiar URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Cerrar popup si está abierto
+            if (window.opener) {
+                window.close();
+            }
+            
+            // Cargar carpetas después de conectar
+            setTimeout(() => loadFolders(), 1000);
+        }
+
         if (config?.connected && config.accessToken) {
             googleDriveService.initialize(config);
             loadFolders();
@@ -62,47 +99,13 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
             `width=${width},height=${height},left=${left},top=${top}`
         );
 
-        // Escuchar mensajes del popup
-        const messageListener = async (event: MessageEvent) => {
-            if (event.origin !== window.location.origin) return;
-
-            if (event.data.type === 'GOOGLE_DRIVE_AUTH_SUCCESS') {
-                const { accessToken, refreshToken, userInfo, rootFolderId } = event.data;
-                
-                const newConfig: GoogleDriveConfig = {
-                    connected: true,
-                    accessToken,
-                    refreshToken,
-                    userEmail: userInfo.email,
-                    userName: userInfo.name,
-                    rootFolderId,
-                };
-
-                googleDriveService.setTokens(accessToken, refreshToken);
-                onConfigChange(newConfig);
-                setSuccess('Conectado exitosamente a Google Drive');
-                setIsConnecting(false);
-                window.removeEventListener('message', messageListener);
-                popup?.close();
-                
-                // Cargar carpetas después de conectar
-                setTimeout(() => loadFolders(), 1000);
-            } else if (event.data.type === 'GOOGLE_DRIVE_AUTH_ERROR') {
-                setError(event.data.error || 'Error al conectar con Google Drive');
-                setIsConnecting(false);
-                window.removeEventListener('message', messageListener);
-                popup?.close();
-            }
-        };
-
-        window.addEventListener('message', messageListener);
-
-        // Verificar si el popup se cerró manualmente
+        // Verificar si el popup se cerró o redirigió
         const checkClosed = setInterval(() => {
             if (popup?.closed) {
                 clearInterval(checkClosed);
-                window.removeEventListener('message', messageListener);
                 setIsConnecting(false);
+                // Si el popup se cerró, verificar si hay parámetros en la URL
+                // (el useEffect los manejará)
             }
         }, 1000);
     };

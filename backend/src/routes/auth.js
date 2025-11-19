@@ -62,32 +62,29 @@ router.get('/google/callback', async (req, res) => {
             rootFolderId,
         };
 
-        // Enviar datos al frontend mediante postMessage
-        // El frontend abrirá esta URL en un popup
+        // Redirigir al frontend con los datos en la URL
+        // El frontend leerá los parámetros de la URL
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const html = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Autenticación exitosa</title>
-            </head>
-            <body>
-                <script>
-                    // Enviar datos al window.opener (el popup del frontend)
-                    if (window.opener) {
-                        window.opener.postMessage(${JSON.stringify(responseData)}, '${frontendUrl}');
-                        window.close();
-                    } else {
-                        // Si no hay opener, redirigir directamente
-                        window.location.href = '${frontendUrl}/settings?drive_connected=true';
-                    }
-                </script>
-                <p>Autenticación exitosa. Esta ventana se cerrará automáticamente...</p>
-            </body>
-            </html>
-        `;
+        const redirectUrl = new URL(`${frontendUrl}/settings`);
+        redirectUrl.searchParams.set('drive_connected', 'true');
+        redirectUrl.searchParams.set('access_token', tokens.access_token);
+        if (tokens.refresh_token) {
+            redirectUrl.searchParams.set('refresh_token', tokens.refresh_token);
+        }
+        if (tokens.expiry_date) {
+            redirectUrl.searchParams.set('expires_in', Math.floor((tokens.expiry_date - Date.now()) / 1000).toString());
+        }
+        if (userInfo.email) {
+            redirectUrl.searchParams.set('user_email', userInfo.email);
+        }
+        if (userInfo.name) {
+            redirectUrl.searchParams.set('user_name', userInfo.name);
+        }
+        if (rootFolderId) {
+            redirectUrl.searchParams.set('root_folder_id', rootFolderId);
+        }
 
-        res.send(html);
+        res.redirect(redirectUrl.toString());
     } catch (error) {
         console.error('Error en callback de OAuth:', error);
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
