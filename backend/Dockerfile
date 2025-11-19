@@ -9,7 +9,8 @@ COPY package.json ./
 COPY src ./src
 
 # Instalar dependencias
-RUN npm ci --only=production
+# Usar npm install si no hay package-lock.json, o npm ci si existe
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 
 # Exponer puerto
 EXPOSE 5000
