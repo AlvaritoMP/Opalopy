@@ -51,6 +51,14 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [isEditing, setIsEditing] = useState(false);
     const [editableCandidate, setEditableCandidate] = useState<Candidate>(initialCandidate);
     
+    // Actualizar editableCandidate cuando el candidato se actualiza en el estado
+    React.useEffect(() => {
+        const updatedCandidate = state.candidates.find(c => c.id === initialCandidate.id);
+        if (updatedCandidate && !isEditing) {
+            setEditableCandidate(updatedCandidate);
+        }
+    }, [state.candidates, initialCandidate.id, isEditing]);
+    
     const [previewFile, setPreviewFile] = useState<Attachment | null>(initialCandidate.attachments?.[0] || null);
     const [activeTab, setActiveTab] = useState<'details' | 'history' | 'schedule' | 'comments' | 'documents'>('details');
     const [isScheduling, setIsScheduling] = useState(false);
@@ -69,7 +77,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const candidateEvents = state.interviewEvents.filter(e => e.candidateId === initialCandidate.id);
 
     const canEdit = ['admin', 'recruiter'].includes(state.currentUser?.role as UserRole);
-    const currentCandidate = isEditing ? editableCandidate : initialCandidate;
+    // Usar el candidato actualizado del estado si está disponible, si no usar editableCandidate o initialCandidate
+    const candidateFromState = state.candidates.find(c => c.id === initialCandidate.id);
+    const currentCandidate = isEditing ? editableCandidate : (candidateFromState || initialCandidate);
     const isArchived = !!currentCandidate.archived;
     const processStages = process?.stages || [];
     const presentationStageIndex = processStages.findIndex(stage => stage.name.toLowerCase().includes('present'));
@@ -144,10 +154,22 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 googleDriveService.initialize(googleDriveConfig);
                 
                 // Si el candidato no tiene carpeta pero el proceso sí, crear la carpeta del candidato ahora
-                if (!candidateHasFolder && processHasFolder) {
+                let finalFolderId: string | null = null;
+                let finalFolderName: string | null = null;
+                
+                if (candidateHasFolder) {
+                    // El candidato ya tiene carpeta, usarla
+                    finalFolderId = editableCandidate.googleDriveFolderId!;
+                    finalFolderName = editableCandidate.googleDriveFolderName || null;
+                } else if (processHasFolder) {
+                    // Crear carpeta del candidato dentro de la carpeta del proceso
                     try {
                         const candidateFolderName = `${editableCandidate.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
                         const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
+                        finalFolderId = folder.id; // Usar la carpeta recién creada
+                        finalFolderName = folder.name;
+                        
+                        // Actualizar el candidato con la nueva carpeta
                         const updatedCandidate = {
                             ...editableCandidate,
                             googleDriveFolderId: folder.id,
@@ -155,14 +177,18 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                         };
                         setEditableCandidate(updatedCandidate);
                         await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
-                        console.log(`✅ Carpeta del candidato creada automáticamente: ${folder.name}`);
+                        console.log(`✅ Carpeta del candidato creada automáticamente: ${folder.name} (dentro de ${process.googleDriveFolderName})`);
                     } catch (error: any) {
                         console.error('Error creando carpeta del candidato:', error);
+                        // Si falla, usar la carpeta del proceso como fallback
+                        finalFolderId = process.googleDriveFolderId;
+                        finalFolderName = process.googleDriveFolderName || null;
                     }
                 }
                 
-                // Usar la carpeta del candidato si existe, si no, la del proceso
-                const finalFolderId = editableCandidate.googleDriveFolderId || processHasFolder;
+                if (!finalFolderId) {
+                    throw new Error('No hay carpeta disponible para subir el archivo');
+                }
                 
                 // Subir archivo a Google Drive (a la carpeta del candidato si existe, si no a la del proceso)
                 const uploadedFile = await googleDriveService.uploadFile(
@@ -174,8 +200,8 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 // Usar URL de visualización de Google Drive
                 attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
                 attachmentId = uploadedFile.id;
-                const folderName = editableCandidate.googleDriveFolderName || process?.googleDriveFolderName || 'Carpeta';
-                console.log(`✅ Archivo subido a Google Drive: ${folderName} - ${uploadedFile.name}`);
+                const folderName = finalFolderName || editableCandidate.googleDriveFolderName || process?.googleDriveFolderName || 'Carpeta';
+                console.log(`✅ Archivo subido a Google Drive en carpeta del candidato: ${folderName} - ${uploadedFile.name}`);
             } catch (error: any) {
                 console.error('Error subiendo a Google Drive, usando almacenamiento local:', error);
                 alert(`Error al subir a Google Drive: ${error.message}. El archivo se guardará localmente.`);
@@ -202,9 +228,15 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             category: categoryId || undefined,
             uploadedAt: new Date().toISOString(),
         };
-        const updatedCandidate = { ...editableCandidate, attachments: [...editableCandidate.attachments, newAttachment] };
+        const updatedCandidate = { ...editableCandidate, attachments: [...(editableCandidate.attachments || []), newAttachment] };
         setEditableCandidate(updatedCandidate);
         await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+        
+        // Actualizar preview si no hay uno seleccionado
+        if (!previewFile) {
+            setPreviewFile(newAttachment);
+        }
+        
         setPendingFile(null);
         setShowCategoryModal(false);
         setSelectedCategory('');
@@ -519,9 +551,11 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                 )}
                                 
                                 <div className="flex flex-col h-full max-w-full">
-                                    <h3 className="font-semibold text-gray-700 mb-2">Adjuntos</h3>
+                                    <h3 className="font-semibold text-gray-700 mb-2">
+                                        Adjuntos {currentCandidate.attachments && currentCandidate.attachments.length > 0 && `(${currentCandidate.attachments.length})`}
+                                    </h3>
                                     <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                        {currentCandidate.attachments.map(att => (
+                                        {currentCandidate.attachments && currentCandidate.attachments.length > 0 ? currentCandidate.attachments.map(att => (
                                             <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-white hover:bg-gray-50">
                                                 <div className="flex items-center overflow-hidden flex-1 min-w-0">
                                                     <FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" />
@@ -545,7 +579,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                     <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
                                                 </div>
                                             </div>
-                                        ))}
+                                        )) : (
+                                            <p className="text-sm text-gray-500 text-center py-4">No hay documentos adjuntos</p>
+                                        )}
                                     </div>
                                     <input type="file" ref={attachmentInputRef} onChange={handleAttachmentUpload} className="hidden" />
                                     <div className="mt-2 space-y-2">

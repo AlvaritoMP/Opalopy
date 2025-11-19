@@ -37,13 +37,14 @@ const getOAuth2Client = (req = null) => {
 };
 
 // Scopes necesarios para Google Drive
-// Usando scopes menos sensibles que no requieren verificación de la app
+// Usando scopes que permiten buscar y acceder a todas las carpetas del usuario
 const SCOPES = [
     'https://www.googleapis.com/auth/drive.file', // Crear y editar archivos (solo los creados por la app)
+    'https://www.googleapis.com/auth/drive.readonly', // Leer metadatos de todos los archivos y carpetas (permite búsqueda)
     'https://www.googleapis.com/auth/userinfo.email', // Obtener email del usuario
 ];
-// Nota: drive.metadata.readonly y userinfo.profile son scopes sensibles que requieren verificación
-// drive.file es suficiente para crear y editar archivos en carpetas que la app crea
+// Nota: drive.readonly permite buscar y listar todas las carpetas del usuario, pero no modificar archivos que no fueron creados por la app
+// drive.file permite crear y editar archivos en carpetas que la app crea o a las que tiene acceso
 
 /**
  * Genera la URL de autenticación de Google
