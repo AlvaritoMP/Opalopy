@@ -50,7 +50,12 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`🚀 Servidor backend corriendo en http://localhost:${PORT}`);
     console.log(`📡 Frontend URL: ${FRONTEND_URL}`);
-    console.log(`🔐 Google OAuth Redirect URI: ${process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/api/auth/google/callback'}`);
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'Se construirá automáticamente desde la request';
+    console.log(`🔐 Google OAuth Redirect URI: ${redirectUri}`);
+    if (!process.env.GOOGLE_REDIRECT_URI) {
+        console.log(`⚠️  NOTA: GOOGLE_REDIRECT_URI no está configurada. Se construirá automáticamente.`);
+        console.log(`   Después del primer deploy, actualiza esta variable con la URL real del backend.`);
+    }
     console.log(`\n✅ Backend listo para recibir peticiones`);
 });
 

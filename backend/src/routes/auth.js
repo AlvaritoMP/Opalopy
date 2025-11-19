@@ -9,7 +9,7 @@ const router = express.Router();
  */
 router.get('/google/drive', (req, res) => {
     try {
-        const authUrl = getAuthUrl();
+        const authUrl = getAuthUrl(req);
         res.redirect(authUrl);
     } catch (error) {
         console.error('Error generando URL de autenticación:', error);
@@ -37,17 +37,17 @@ router.get('/google/callback', async (req, res) => {
         }
 
         // Intercambiar código por tokens
-        const tokens = await getTokensFromCode(code);
+        const tokens = await getTokensFromCode(code, req);
 
         if (!tokens.access_token) {
             throw new Error('No se recibió access token');
         }
 
         // Obtener información del usuario
-        const userInfo = await getUserInfo(tokens.access_token);
+        const userInfo = await getUserInfo(tokens.access_token, req);
 
         // Crear o obtener carpeta raíz "ATS Pro"
-        const rootFolderId = await getOrCreateRootFolder(tokens.access_token);
+        const rootFolderId = await getOrCreateRootFolder(tokens.access_token, req);
 
         // Preparar datos para enviar al frontend
         const responseData = {
@@ -108,7 +108,7 @@ router.post('/google/refresh', async (req, res) => {
             return res.status(400).json({ error: 'Refresh token no proporcionado' });
         }
 
-        const credentials = await refreshAccessToken(refreshToken);
+        const credentials = await refreshAccessToken(refreshToken, req);
 
         res.json({
             accessToken: credentials.access_token,
