@@ -1,0 +1,5 @@
+# Ignorar Caddyfile si existe en la raíz
+Caddyfile
+*.md
+README.md
+
