@@ -270,10 +270,16 @@ export const Settings: React.FC = () => {
                             // Guardar automáticamente cuando se conecta/desconecta Google Drive
                             setIsSaving(true);
                             try {
+                                console.log('Guardando configuración de Google Drive:', {
+                                    connected: googleDriveConfig.connected,
+                                    hasAccessToken: !!googleDriveConfig.accessToken,
+                                    userEmail: googleDriveConfig.userEmail,
+                                });
                                 await actions.saveSettings(updatedSettings);
-                                console.log('Configuración de Google Drive guardada exitosamente');
+                                console.log('✓ Configuración de Google Drive guardada exitosamente en Supabase');
                             } catch (error) {
-                                console.error('Error guardando configuración de Google Drive:', error);
+                                console.error('✗ Error guardando configuración de Google Drive:', error);
+                                alert('Error al guardar la configuración de Google Drive. Por favor, intenta de nuevo.');
                             } finally {
                                 setIsSaving(false);
                             }

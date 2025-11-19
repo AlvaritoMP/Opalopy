@@ -79,15 +79,29 @@ export const settingsApi = {
     // Actualizar configuración
     async update(settings: Partial<AppSettings>): Promise<AppSettings> {
         const dbData = settingsToDb(settings);
+        console.log('settingsApi.update - dbData:', JSON.stringify(dbData, null, 2));
+        
+        // Primero obtener la configuración actual para hacer merge
+        const current = await this.get();
+        const mergedSettings = { ...current, ...settings };
+        const mergedDbData = settingsToDb(mergedSettings);
+        console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
+        
         const { data, error } = await supabase
             .from('app_settings')
-            .update(dbData)
+            .update(mergedDbData)
             .eq('id', SETTINGS_ID)
             .select()
             .single();
         
-        if (error) throw error;
-        return dbToSettings(data);
+        if (error) {
+            console.error('Error updating settings in Supabase:', error);
+            throw error;
+        }
+        
+        const result = dbToSettings(data);
+        console.log('settingsApi.update - result:', JSON.stringify(result.googleDrive, null, 2));
+        return result;
     },
 };
 
