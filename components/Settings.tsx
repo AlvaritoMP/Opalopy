@@ -253,7 +253,7 @@ export const Settings: React.FC = () => {
                     </div>
                 </div>
                 {/* File Storage Settings - Solo para superadmin */}
-                {isSuperAdmin && (
+                {isSuperAdmin ? (
                     <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <h2 className="text-xl font-semibold mb-1 flex items-center"><HardDrive className="mr-2"/> Almacenamiento de Archivos</h2>
                         <p className="text-sm text-gray-500 mb-6">Conecta Google Drive para almacenar documentos de candidatos y procesos. Solo el superadministrador puede configurar esta opción.</p>
