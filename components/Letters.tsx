@@ -356,17 +356,48 @@ export const Letters: React.FC = () => {
             // Descargar el archivo
             saveAs(out, finalName);
             
-            // Guardar también en los attachments del candidato
+            // Guardar también en los attachments del candidato y en Google Drive
             try {
-                const url = await blobToDataUrl(out);
+                const googleDriveConfig = state.settings?.googleDrive;
+                const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                let attachmentUrl: string;
+                let attachmentId: string = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+                // Si Google Drive está conectado, subir a la carpeta "Cartas"
+                if (isGoogleDriveConnected && googleDriveConfig && googleDriveConfig.rootFolderId) {
+                    try {
+                        const { googleDriveService } = await import('../lib/googleDrive');
+                        googleDriveService.initialize(googleDriveConfig);
+                        
+                        // Obtener o crear carpeta "Cartas" dentro de la carpeta raíz
+                        const cartasFolder = await googleDriveService.getOrCreateSectionFolder('Cartas', googleDriveConfig.rootFolderId);
+                        
+                        // Convertir blob a File para subir
+                        const file = new File([out], finalName, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+                        
+                        // Subir a Google Drive
+                        const uploadedFile = await googleDriveService.uploadFile(file, cartasFolder.id, finalName);
+                        attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                        attachmentId = uploadedFile.id;
+                        console.log(`✅ Carta guardada en Google Drive: Cartas/${finalName}`);
+                    } catch (driveError: any) {
+                        console.error('Error subiendo a Google Drive, usando almacenamiento local:', driveError);
+                        // Fallback a Base64
+                        attachmentUrl = await blobToDataUrl(out);
+                    }
+                } else {
+                    // Usar Base64 si Google Drive no está configurado
+                    attachmentUrl = await blobToDataUrl(out);
+                }
+
                 const updated = {
                     ...selectedCandidate,
                     attachments: [
                         ...selectedCandidate.attachments,
                         { 
-                            id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`, 
+                            id: attachmentId, 
                             name: finalName, 
-                            url, 
+                            url: attachmentUrl, 
                             type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
                             size: out.size 
                         },

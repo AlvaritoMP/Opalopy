@@ -479,7 +479,38 @@ const App: React.FC = () => {
         },
         addProcess: async (processData) => {
             try {
-                const newProcess = await processesApi.create(processData, state.currentUser?.id);
+                // Si Google Drive está conectado, crear carpeta automáticamente
+                let folderId = processData.googleDriveFolderId;
+                let folderName = processData.googleDriveFolderName;
+                
+                const googleDriveConfig = state.settings?.googleDrive;
+                const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                
+                if (isGoogleDriveConnected && googleDriveConfig && !folderId) {
+                    try {
+                        const { googleDriveService } = await import('./lib/googleDrive');
+                        googleDriveService.initialize(googleDriveConfig);
+                        
+                        // Crear carpeta con el nombre del proceso
+                        const folderNameToCreate = processData.title || `Proceso ${Date.now()}`;
+                        const rootFolderId = googleDriveConfig.rootFolderId;
+                        const folder = await googleDriveService.createFolder(folderNameToCreate, rootFolderId);
+                        folderId = folder.id;
+                        folderName = folder.name;
+                        console.log(`✅ Carpeta creada automáticamente en Google Drive: ${folderName}`);
+                    } catch (error: any) {
+                        console.error('Error creando carpeta automáticamente:', error);
+                        // Continuar sin carpeta si falla
+                    }
+                }
+                
+                const processDataWithFolder = {
+                    ...processData,
+                    googleDriveFolderId: folderId,
+                    googleDriveFolderName: folderName,
+                };
+                
+                const newProcess = await processesApi.create(processDataWithFolder, state.currentUser?.id);
                 setState(s => ({ ...s, processes: [...s.processes, newProcess] }));
             } catch (error) {
                 console.error('Error adding process:', error);
@@ -498,6 +529,27 @@ const App: React.FC = () => {
         },
         deleteProcess: async (processId) => {
             try {
+                // Obtener el proceso antes de eliminarlo para acceder a la carpeta de Google Drive
+                const processToDelete = state.processes.find(p => p.id === processId);
+                
+                // Eliminar carpeta de Google Drive si existe
+                if (processToDelete?.googleDriveFolderId) {
+                    const googleDriveConfig = state.settings?.googleDrive;
+                    const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                    
+                    if (isGoogleDriveConnected && googleDriveConfig) {
+                        try {
+                            const { googleDriveService } = await import('./lib/googleDrive');
+                            googleDriveService.initialize(googleDriveConfig);
+                            await googleDriveService.deleteFolder(processToDelete.googleDriveFolderId);
+                            console.log(`✅ Carpeta eliminada de Google Drive: ${processToDelete.googleDriveFolderName}`);
+                        } catch (error: any) {
+                            console.error('Error eliminando carpeta de Google Drive:', error);
+                            // Continuar con la eliminación del proceso aunque falle la eliminación de la carpeta
+                        }
+                    }
+                }
+                
                 await processesApi.delete(processId);
                 setState(s => ({
                     ...s,
@@ -515,7 +567,39 @@ const App: React.FC = () => {
         },
         addCandidate: async (candidateData) => {
             try {
-                const newCandidate = await candidatesApi.create(candidateData, state.currentUser?.id);
+                // Si Google Drive está conectado y el proceso tiene carpeta, crear carpeta del candidato
+                let folderId = candidateData.googleDriveFolderId;
+                let folderName = candidateData.googleDriveFolderName;
+                
+                const googleDriveConfig = state.settings?.googleDrive;
+                const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                const process = state.processes.find(p => p.id === candidateData.processId);
+                const processHasFolder = process?.googleDriveFolderId;
+                
+                if (isGoogleDriveConnected && googleDriveConfig && processHasFolder && !folderId) {
+                    try {
+                        const { googleDriveService } = await import('./lib/googleDrive');
+                        googleDriveService.initialize(googleDriveConfig);
+                        
+                        // Crear carpeta del candidato dentro de la carpeta del proceso
+                        const candidateFolderName = `${candidateData.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+                        const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
+                        folderId = folder.id;
+                        folderName = folder.name;
+                        console.log(`✅ Carpeta del candidato creada automáticamente en Google Drive: ${folderName} (dentro de ${process.googleDriveFolderName})`);
+                    } catch (error: any) {
+                        console.error('Error creando carpeta del candidato automáticamente:', error);
+                        // Continuar sin carpeta si falla
+                    }
+                }
+                
+                const candidateDataWithFolder = {
+                    ...candidateData,
+                    googleDriveFolderId: folderId,
+                    googleDriveFolderName: folderName,
+                };
+                
+                const newCandidate = await candidatesApi.create(candidateDataWithFolder, state.currentUser?.id);
                 setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
             } catch (error) {
                 console.error('Error adding candidate:', error);

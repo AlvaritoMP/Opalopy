@@ -128,28 +128,54 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         const googleDriveConfig = state.settings?.googleDrive;
         const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
         const process = state.processes.find(p => p.id === editableCandidate.processId);
-        const hasGoogleDriveFolder = process?.googleDriveFolderId;
+        const processHasFolder = process?.googleDriveFolderId;
+        
+        // Usar la carpeta del candidato si existe, si no, usar la del proceso
+        const candidateHasFolder = editableCandidate.googleDriveFolderId;
+        const targetFolderId = candidateHasFolder || processHasFolder;
 
         let attachmentUrl: string;
         let attachmentId: string = `att-c-${Date.now()}`;
 
-        // Si Google Drive está conectado y el proceso tiene carpeta configurada, subir a Google Drive
-        if (isGoogleDriveConnected && hasGoogleDriveFolder && googleDriveConfig) {
+        // Si Google Drive está conectado y hay carpeta (del candidato o del proceso), subir a Google Drive
+        if (isGoogleDriveConnected && targetFolderId && googleDriveConfig) {
             try {
                 const { googleDriveService } = await import('../lib/googleDrive');
                 googleDriveService.initialize(googleDriveConfig);
                 
-                // Subir archivo a Google Drive
+                // Si el candidato no tiene carpeta pero el proceso sí, crear la carpeta del candidato ahora
+                if (!candidateHasFolder && processHasFolder) {
+                    try {
+                        const candidateFolderName = `${editableCandidate.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+                        const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
+                        const updatedCandidate = {
+                            ...editableCandidate,
+                            googleDriveFolderId: folder.id,
+                            googleDriveFolderName: folder.name,
+                        };
+                        setEditableCandidate(updatedCandidate);
+                        await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+                        console.log(`✅ Carpeta del candidato creada automáticamente: ${folder.name}`);
+                    } catch (error: any) {
+                        console.error('Error creando carpeta del candidato:', error);
+                    }
+                }
+                
+                // Usar la carpeta del candidato si existe, si no, la del proceso
+                const finalFolderId = editableCandidate.googleDriveFolderId || processHasFolder;
+                
+                // Subir archivo a Google Drive (a la carpeta del candidato si existe, si no a la del proceso)
                 const uploadedFile = await googleDriveService.uploadFile(
                     file,
-                    process.googleDriveFolderId,
-                    `${editableCandidate.name || 'candidato'}_${file.name}`
+                    finalFolderId,
+                    file.name
                 );
                 
                 // Usar URL de visualización de Google Drive
                 attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
                 attachmentId = uploadedFile.id;
-                console.log(`✅ Archivo subido a Google Drive: ${process.googleDriveFolderName || 'Carpeta del proceso'} - ${uploadedFile.name}`);
+                const folderName = editableCandidate.googleDriveFolderName || process?.googleDriveFolderName || 'Carpeta';
+                console.log(`✅ Archivo subido a Google Drive: ${folderName} - ${uploadedFile.name}`);
             } catch (error: any) {
                 console.error('Error subiendo a Google Drive, usando almacenamiento local:', error);
                 alert(`Error al subir a Google Drive: ${error.message}. El archivo se guardará localmente.`);
@@ -158,7 +184,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             }
         } else {
             // Usar Base64 si Google Drive no está configurado
-            if (isGoogleDriveConnected && !hasGoogleDriveFolder) {
+            if (isGoogleDriveConnected && !processHasFolder) {
                 console.warn('⚠️ Google Drive está conectado pero el proceso no tiene carpeta configurada. El archivo se guardará localmente.');
                 alert('⚠️ Google Drive está conectado pero este proceso no tiene una carpeta configurada. El archivo se guardará localmente. Ve a Procesos → Editar Proceso para configurar una carpeta de Google Drive.');
             } else if (!isGoogleDriveConnected) {
@@ -497,10 +523,25 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                     <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                         {currentCandidate.attachments.map(att => (
                                             <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-white hover:bg-gray-50">
-                                                <div className="flex items-center overflow-hidden"><FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" /><p className="text-sm font-medium text-gray-800 truncate">{att.name}</p></div>
-                                                <div className="flex items-center space-x-1">
+                                                <div className="flex items-center overflow-hidden flex-1 min-w-0">
+                                                    <FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-gray-800 truncate">{att.name}</p>
+                                                        {att.url && (
+                                                            <a 
+                                                                href={att.url} 
+                                                                target="_blank" 
+                                                                rel="noopener noreferrer"
+                                                                className="text-xs text-primary-600 hover:underline truncate block"
+                                                            >
+                                                                {att.url.startsWith('https://drive.google.com') ? 'Ver en Google Drive' : 'Ver documento'}
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center space-x-1 flex-shrink-0">
                                                     <button onClick={() => setPreviewFile(att)} className="p-1 rounded-md hover:bg-gray-200" title="Previsualizar"><Eye className="w-4 h-4 text-gray-600" /></button>
-                                                    <a href={att.url} download={att.name} className="p-1 rounded-md hover:bg-gray-200" title="Descargar"><Download className="w-4 h-4 text-gray-600" /></a>
+                                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded-md hover:bg-gray-200" title="Abrir"><Download className="w-4 h-4 text-gray-600" /></a>
                                                     <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
                                                 </div>
                                             </div>
@@ -515,11 +556,19 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                             const currentProcess = state.processes.find(p => p.id === currentCandidate.processId);
                                             const hasGoogleDriveFolder = currentProcess?.googleDriveFolderId;
                                             
-                                            if (isGoogleDriveConnected && hasGoogleDriveFolder) {
+                                            const candidateHasFolder = currentCandidate.googleDriveFolderId;
+                                            const targetFolderName = candidateHasFolder 
+                                                ? currentCandidate.googleDriveFolderName || 'Carpeta del candidato'
+                                                : currentProcess?.googleDriveFolderName || 'Carpeta del proceso';
+                                            
+                                            if (isGoogleDriveConnected && (hasGoogleDriveFolder || candidateHasFolder)) {
                                                 return (
                                                     <p className="text-xs text-green-600 flex items-center">
                                                         <Info className="w-3 h-3 mr-1" />
-                                                        Los archivos se subirán a Google Drive: <strong>{currentProcess?.googleDriveFolderName || 'Carpeta del proceso'}</strong>
+                                                        Los archivos se subirán a Google Drive: <strong>{targetFolderName}</strong>
+                                                        {candidateHasFolder && currentProcess?.googleDriveFolderName && (
+                                                            <span className="ml-1 text-xs">(dentro de {currentProcess.googleDriveFolderName})</span>
+                                                        )}
                                                     </p>
                                                 );
                                             } else if (isGoogleDriveConnected && !hasGoogleDriveFolder) {

@@ -91,6 +91,8 @@ export interface Candidate {
     archived?: boolean;
     archivedAt?: string;
     hireDate?: string;
+    googleDriveFolderId?: string; // Carpeta del candidato en Google Drive (dentro de la carpeta del proceso)
+    googleDriveFolderName?: string; // Nombre de la carpeta del candidato
 }
 
 export type UserRole = 'admin' | 'recruiter' | 'client' | 'viewer';
@@ -167,7 +169,8 @@ export interface GoogleDriveConfig {
     tokenExpiry?: string;
     userEmail?: string;
     userName?: string;
-    rootFolderId?: string; // Carpeta raíz "ATS Pro" en Google Drive
+    rootFolderId?: string; // Carpeta raíz en Google Drive (puede ser "ATS Pro" o cualquier otra)
+    rootFolderName?: string; // Nombre de la carpeta raíz
 }
 
 export interface AppSettings {

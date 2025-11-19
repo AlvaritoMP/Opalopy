@@ -27,6 +27,9 @@ export const Settings: React.FC = () => {
     if (!settings) {
         return null; // Or a loading state
     }
+
+    // Solo superadmin puede ver y configurar Google Drive
+    const isSuperAdmin = state.currentUser?.role === 'admin' || state.currentUser?.role === 'superadmin';
     
     const handleDbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSettings({
@@ -249,11 +252,12 @@ export const Settings: React.FC = () => {
                         </div>
                     </div>
                 </div>
-                {/* File Storage Settings */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h2 className="text-xl font-semibold mb-1 flex items-center"><HardDrive className="mr-2"/> Almacenamiento de Archivos</h2>
-                    <p className="text-sm text-gray-500 mb-6">Conecta Google Drive para almacenar documentos de candidatos y procesos.</p>
-                    <GoogleDriveSettings
+                {/* File Storage Settings - Solo para superadmin */}
+                {isSuperAdmin && (
+                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <h2 className="text-xl font-semibold mb-1 flex items-center"><HardDrive className="mr-2"/> Almacenamiento de Archivos</h2>
+                        <p className="text-sm text-gray-500 mb-6">Conecta Google Drive para almacenar documentos de candidatos y procesos. Solo el superadministrador puede configurar esta opción.</p>
+                        <GoogleDriveSettings
                         config={settings.googleDrive}
                         onConfigChange={async (googleDriveConfig) => {
                             const updatedSettings = {
@@ -285,7 +289,22 @@ export const Settings: React.FC = () => {
                             }
                         }}
                     />
-                </div>
+                    </div>
+                ) : (
+                    <div className="bg-blue-50 p-6 rounded-xl border border-blue-200 shadow-sm">
+                        <h2 className="text-xl font-semibold mb-1 flex items-center"><HardDrive className="mr-2"/> Almacenamiento de Archivos</h2>
+                        <p className="text-sm text-blue-800 mb-4">
+                            Google Drive está configurado por el administrador. Los archivos que subas se guardarán automáticamente en Google Drive si el proceso tiene una carpeta configurada.
+                        </p>
+                        {settings.googleDrive?.connected && (
+                            <div className="mt-4 p-3 bg-white rounded-md border border-blue-200">
+                                <p className="text-sm text-blue-900">
+                                    <strong>Estado:</strong> Conectado a {settings.googleDrive.userEmail || 'Google Drive'}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
             <style>{`.input { padding: 0.5rem 0.75rem; border: 1px solid #D1D5DB; border-radius: 0.375rem; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }`}</style>
         </div>

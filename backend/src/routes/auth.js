@@ -46,8 +46,21 @@ router.get('/google/callback', async (req, res) => {
         // Obtener información del usuario
         const userInfo = await getUserInfo(tokens.access_token, req);
 
-        // Crear o obtener carpeta raíz "ATS Pro"
-        const rootFolderId = await getOrCreateRootFolder(tokens.access_token, req);
+        // Crear o obtener carpeta raíz "ATS Pro" (por defecto)
+        const rootFolderId = await getOrCreateRootFolder(tokens.access_token, req, 'ATS Pro');
+        
+        // Obtener el nombre de la carpeta raíz
+        let rootFolderName = 'ATS Pro';
+        try {
+            const { google } = await import('googleapis');
+            const client = getOAuth2Client(req);
+            client.setCredentials({ access_token: tokens.access_token });
+            const drive = google.drive({ version: 'v3', auth: client });
+            const folderInfo = await drive.files.get({ fileId: rootFolderId, fields: 'name' });
+            rootFolderName = folderInfo.data.name || 'ATS Pro';
+        } catch (error) {
+            console.error('Error obteniendo nombre de carpeta raíz:', error);
+        }
 
         // Preparar datos para enviar al frontend
         const responseData = {
@@ -60,6 +73,7 @@ router.get('/google/callback', async (req, res) => {
                 name: userInfo.name,
             },
             rootFolderId,
+            rootFolderName,
         };
 
         // Redirigir al frontend con los datos en la URL
@@ -82,6 +96,9 @@ router.get('/google/callback', async (req, res) => {
         }
         if (rootFolderId) {
             redirectUrl.searchParams.set('root_folder_id', rootFolderId);
+        }
+        if (rootFolderName) {
+            redirectUrl.searchParams.set('root_folder_name', rootFolderName);
         }
 
         res.redirect(redirectUrl.toString());

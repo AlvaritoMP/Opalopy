@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../App';
 import { Process, Stage, Attachment, ProcessStatus, DocumentCategory } from '../types';
-import { X, Plus, Trash2, GripVertical, Paperclip, Upload, FileText, CheckSquare, Folder, Cloud } from 'lucide-react';
+import { X, Plus, Trash2, GripVertical, Paperclip, Upload, FileText, CheckSquare, Folder, Cloud, Eye, Info } from 'lucide-react';
 import { googleDriveService, GoogleDriveFolder } from '../lib/googleDrive';
 
 interface ProcessEditorModalProps {
@@ -167,17 +167,51 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
     
     const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const dataUrl = await fileToBase64(file);
-            const newAttachment: Attachment = {
-                id: `att-p-${Date.now()}`,
-                name: file.name,
-                url: dataUrl,
-                type: file.type,
-                size: file.size,
-            };
-            setAttachments(prev => [...prev, newAttachment]);
+        if (!file) return;
+
+        const googleDriveConfig = state.settings?.googleDrive;
+        const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+        const hasGoogleDriveFolder = googleDriveFolderId;
+
+        let attachmentUrl: string;
+        let attachmentId: string = `att-p-${Date.now()}`;
+
+        // Si Google Drive está conectado y hay carpeta configurada, subir a Google Drive
+        if (isGoogleDriveConnected && hasGoogleDriveFolder && googleDriveConfig) {
+            try {
+                googleDriveService.initialize(googleDriveConfig);
+                
+                // Subir archivo a Google Drive
+                const uploadedFile = await googleDriveService.uploadFile(
+                    file,
+                    googleDriveFolderId,
+                    `proceso_${title || 'sin_titulo'}_${file.name}`
+                );
+                
+                // Usar URL de visualización de Google Drive
+                attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                attachmentId = uploadedFile.id;
+                console.log(`✅ Archivo del proceso subido a Google Drive: ${googleDriveFolderName || 'Carpeta del proceso'} - ${uploadedFile.name}`);
+            } catch (error: any) {
+                console.error('Error subiendo a Google Drive, usando almacenamiento local:', error);
+                alert(`Error al subir a Google Drive: ${error.message}. El archivo se guardará localmente.`);
+                // Fallback a Base64 si falla Google Drive
+                attachmentUrl = await fileToBase64(file);
+            }
+        } else {
+            // Usar Base64 si Google Drive no está configurado
+            attachmentUrl = await fileToBase64(file);
         }
+
+        const newAttachment: Attachment = {
+            id: attachmentId,
+            name: file.name,
+            url: attachmentUrl,
+            type: file.type,
+            size: file.size,
+            uploadedAt: new Date().toISOString(),
+        };
+        setAttachments(prev => [...prev, newAttachment]);
     };
 
     const handleDeleteAttachment = (id: string) => {
@@ -365,13 +399,70 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                              <div className="space-y-2">
                                 {attachments.map(att => (
                                     <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-gray-50">
-                                        <div className="flex items-center overflow-hidden"><FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" /><p className="text-sm font-medium text-gray-800 truncate">{att.name}</p></div>
-                                        <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                                        <div className="flex items-center overflow-hidden flex-1">
+                                            <FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-800 truncate">{att.name}</p>
+                                                {att.url && (
+                                                    <a 
+                                                        href={att.url} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="text-xs text-primary-600 hover:underline"
+                                                    >
+                                                        {att.url.startsWith('https://drive.google.com') ? 'Ver en Google Drive' : 'Ver documento'}
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            {att.url && (
+                                                <a 
+                                                    href={att.url} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="p-1 rounded-md hover:bg-gray-200" 
+                                                    title="Abrir"
+                                                >
+                                                    <Eye className="w-4 h-4 text-gray-600" />
+                                                </a>
+                                            )}
+                                            <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                             <input type="file" ref={attachmentInputRef} onChange={handleAttachmentUpload} className="hidden" />
-                            <button type="button" onClick={() => attachmentInputRef.current?.click()} className="mt-2 flex items-center text-sm font-medium text-primary-600 hover:text-primary-800"><Upload className="w-4 h-4 mr-1" /> Subir documento</button>
+                            <div className="mt-2 space-y-1">
+                                <button type="button" onClick={() => attachmentInputRef.current?.click()} className="flex items-center text-sm font-medium text-primary-600 hover:text-primary-800"><Upload className="w-4 h-4 mr-1" /> Subir documento</button>
+                                {(() => {
+                                    const googleDriveConfig = state.settings?.googleDrive;
+                                    const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                                    
+                                    if (isGoogleDriveConnected && googleDriveFolderId) {
+                                        return (
+                                            <p className="text-xs text-green-600 flex items-center">
+                                                <Info className="w-3 h-3 mr-1" />
+                                                Los archivos se subirán a Google Drive: <strong>{googleDriveFolderName || 'Carpeta del proceso'}</strong>
+                                            </p>
+                                        );
+                                    } else if (isGoogleDriveConnected && !googleDriveFolderId) {
+                                        return (
+                                            <p className="text-xs text-orange-600 flex items-center">
+                                                <Info className="w-3 h-3 mr-1" />
+                                                ⚠️ Configura una carpeta de Google Drive arriba para subir archivos a la nube
+                                            </p>
+                                        );
+                                    } else {
+                                        return (
+                                            <p className="text-xs text-gray-500 flex items-center">
+                                                <Info className="w-3 h-3 mr-1" />
+                                                Los archivos se guardarán localmente
+                                            </p>
+                                        );
+                                    }
+                                })()}
+                            </div>
                         </div>
                         
                         {/* Document Categories */}

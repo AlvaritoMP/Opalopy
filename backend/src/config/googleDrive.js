@@ -111,9 +111,10 @@ export const getUserInfo = async (accessToken, req = null) => {
 };
 
 /**
- * Crea o obtiene la carpeta raíz "ATS Pro" en Google Drive
+ * Crea o obtiene la carpeta raíz en Google Drive
+ * Si no se especifica un nombre, usa "ATS Pro" por defecto
  */
-export const getOrCreateRootFolder = async (accessToken, req = null) => {
+export const getOrCreateRootFolder = async (accessToken, req = null, folderName = 'ATS Pro') => {
     try {
         const client = getOAuth2Client(req);
         client.setCredentials({
@@ -123,7 +124,7 @@ export const getOrCreateRootFolder = async (accessToken, req = null) => {
 
         // Buscar carpeta existente
         const response = await drive.files.list({
-            q: "name='ATS Pro' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
             fields: 'files(id, name)',
         });
 
@@ -134,7 +135,7 @@ export const getOrCreateRootFolder = async (accessToken, req = null) => {
         // Crear carpeta si no existe
         const folder = await drive.files.create({
             requestBody: {
-                name: 'ATS Pro',
+                name: folderName,
                 mimeType: 'application/vnd.google-apps.folder',
             },
             fields: 'id',

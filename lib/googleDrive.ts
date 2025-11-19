@@ -227,6 +227,51 @@ class GoogleDriveService {
         }
     }
 
+    // Eliminar carpeta de Google Drive
+    async deleteFolder(folderId: string): Promise<void> {
+        // Las carpetas se eliminan igual que los archivos
+        return this.deleteFile(folderId);
+    }
+
+    // Obtener o crear carpeta de sección (Cartas, Formularios, etc.)
+    async getOrCreateSectionFolder(sectionName: string, rootFolderId: string): Promise<GoogleDriveFolder> {
+        if (!this.accessToken) {
+            throw new Error('No hay conexión con Google Drive');
+        }
+
+        try {
+            // Buscar carpeta existente
+            const query = `name='${sectionName}' and '${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const response = await fetch(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`,
+                    },
+                }
+            );
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    await this.refreshAccessToken();
+                    return this.getOrCreateSectionFolder(sectionName, rootFolderId);
+                }
+                throw new Error(`Error al buscar carpeta de sección: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                return data.files[0] as GoogleDriveFolder;
+            }
+
+            // Crear carpeta si no existe
+            return await this.createFolder(sectionName, rootFolderId);
+        } catch (error) {
+            console.error('Error obteniendo/creando carpeta de sección:', error);
+            throw error;
+        }
+    }
+
     // Refrescar token de acceso
     private async refreshAccessToken(): Promise<void> {
         if (!this.refreshToken) {

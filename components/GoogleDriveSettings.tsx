@@ -16,6 +16,9 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
     const [folders, setFolders] = useState<GoogleDriveFolder[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [showRootFolderSelector, setShowRootFolderSelector] = useState(false);
+    const [availableRootFolders, setAvailableRootFolders] = useState<GoogleDriveFolder[]>([]);
+    const [isLoadingRootFolders, setIsLoadingRootFolders] = useState(false);
 
     useEffect(() => {
         // Si estamos en un popup (window.opener existe), leer parámetros y enviarlos a la ventana principal
@@ -29,6 +32,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
             const userEmail = urlParams.get('user_email');
             const userName = urlParams.get('user_name');
             const rootFolderId = urlParams.get('root_folder_id');
+            const rootFolderName = urlParams.get('root_folder_name');
 
             console.log('📋 Parámetros encontrados:', {
                 driveConnected,
@@ -48,6 +52,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                         name: userName,
                     },
                     rootFolderId,
+                    rootFolderName,
                 };
                 
                 console.log('📤 Enviando mensaje a ventana principal:', messageData);
@@ -88,7 +93,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
             if (event.origin !== window.location.origin) return;
 
             if (event.data.type === 'GOOGLE_DRIVE_AUTH_SUCCESS') {
-                const { accessToken, refreshToken, userInfo, rootFolderId, tokenExpiry } = event.data;
+                const { accessToken, refreshToken, userInfo, rootFolderId, rootFolderName, tokenExpiry } = event.data;
                 
                 const newConfig: GoogleDriveConfig = {
                     connected: true,
@@ -98,6 +103,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                     userEmail: userInfo?.email || config?.userEmail,
                     userName: userInfo?.name || config?.userName,
                     rootFolderId: rootFolderId || config?.rootFolderId,
+                    rootFolderName: rootFolderName || config?.rootFolderName || 'ATS Pro',
                 };
 
                 googleDriveService.setTokens(accessToken, refreshToken || '');
@@ -129,6 +135,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                 const userEmail = urlParams.get('user_email');
                 const userName = urlParams.get('user_name');
                 const rootFolderId = urlParams.get('root_folder_id');
+                const rootFolderName = urlParams.get('root_folder_name');
 
                 const newConfig: GoogleDriveConfig = {
                     connected: true,
@@ -138,6 +145,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                     userEmail: userEmail || config?.userEmail,
                     userName: userName || config?.userName,
                     rootFolderId: rootFolderId || config?.rootFolderId,
+                    rootFolderName: rootFolderName || config?.rootFolderName || 'ATS Pro',
                 };
                 googleDriveService.setTokens(accessToken, refreshToken || '');
                 
@@ -216,7 +224,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                 console.log('✅ Mensaje de éxito recibido:', event.data);
                 (async () => {
                     try {
-                        const { accessToken, refreshToken, userInfo, rootFolderId, tokenExpiry } = event.data;
+                        const { accessToken, refreshToken, userInfo, rootFolderId, rootFolderName, tokenExpiry } = event.data;
                         
                         const newConfig: GoogleDriveConfig = {
                             connected: true,
@@ -226,6 +234,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                             userEmail: userInfo?.email || config?.userEmail,
                             userName: userInfo?.name || config?.userName,
                             rootFolderId: rootFolderId || config?.rootFolderId,
+                            rootFolderName: rootFolderName || config?.rootFolderName || 'ATS Pro',
                         };
 
                         console.log('💾 Guardando configuración:', { connected: newConfig.connected, hasToken: !!newConfig.accessToken });
@@ -311,6 +320,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                                 const userEmail = urlParams.get('user_email');
                                 const userName = urlParams.get('user_name');
                                 const rootFolderId = urlParams.get('root_folder_id');
+                                const rootFolderName = urlParams.get('root_folder_name');
 
                                 const newConfig: GoogleDriveConfig = {
                                     connected: true,
@@ -320,6 +330,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                                     userEmail: userEmail || config?.userEmail,
                                     userName: userName || config?.userName,
                                     rootFolderId: rootFolderId || config?.rootFolderId,
+                                    rootFolderName: rootFolderName || config?.rootFolderName || 'ATS Pro',
                                 };
                                 
                                 console.log('💾 Guardando configuración desde URL:', { connected: newConfig.connected, hasToken: !!newConfig.accessToken });
@@ -362,6 +373,24 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
 
     const handleRefreshFolders = () => {
         loadFolders();
+    };
+
+    const loadRootFolders = async () => {
+        if (!config?.connected || !config.accessToken) return;
+
+        setIsLoadingRootFolders(true);
+        setError(null);
+        try {
+            googleDriveService.initialize(config);
+            // Listar todas las carpetas en la raíz de Google Drive (sin parent)
+            const foldersList = await googleDriveService.listFolders();
+            setAvailableRootFolders(foldersList);
+        } catch (err: any) {
+            console.error('Error cargando carpetas raíz:', err);
+            setError(err.message || 'Error al cargar carpetas raíz de Google Drive');
+        } finally {
+            setIsLoadingRootFolders(false);
+        }
     };
 
     return (
@@ -454,7 +483,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                     </h4>
                     <div className="text-sm text-blue-800 space-y-2">
                         <p>
-                            <strong>Carpeta raíz:</strong> Todos los archivos se almacenan en la carpeta <strong>"ATS Pro"</strong> en tu Google Drive.
+                            <strong>Carpeta raíz:</strong> Todos los archivos se almacenan en la carpeta raíz configurada (por defecto <strong>"ATS Pro"</strong>). Puedes cambiarla haciendo clic en "Cambiar" arriba.
                         </p>
                         <p>
                             <strong>Organización por proceso:</strong> Puedes configurar una carpeta específica para cada proceso de contratación. 
@@ -486,10 +515,61 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
                             <p><strong>Email:</strong> {config.userEmail}</p>
                         )}
                         {config.rootFolderId && (
-                            <p><strong>Carpeta raíz:</strong> ATS Pro</p>
+                            <div className="flex items-center justify-between">
+                                <p><strong>Carpeta raíz:</strong> {config.rootFolderName || 'ATS Pro'}</p>
+                                <button
+                                    onClick={() => {
+                                        setShowRootFolderSelector(!showRootFolderSelector);
+                                        if (!showRootFolderSelector) {
+                                            loadRootFolders();
+                                        }
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                >
+                                    Cambiar
+                                </button>
+                            </div>
                         )}
                     </div>
-                    <div className="mt-3">
+                    {showRootFolderSelector && (
+                        <div className="mt-3 p-3 bg-white rounded-md border border-blue-200">
+                            <p className="text-xs text-blue-900 mb-2">Selecciona una carpeta raíz diferente:</p>
+                            {isLoadingRootFolders ? (
+                                <p className="text-xs text-gray-500">Cargando carpetas...</p>
+                            ) : (
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {availableRootFolders.map((folder) => (
+                                        <button
+                                            key={folder.id}
+                                            onClick={async () => {
+                                                try {
+                                                    const newConfig = {
+                                                        ...config!,
+                                                        rootFolderId: folder.id,
+                                                        rootFolderName: folder.name,
+                                                    };
+                                                    await onConfigChange(newConfig);
+                                                    setShowRootFolderSelector(false);
+                                                    setSuccess(`Carpeta raíz cambiada a: ${folder.name}`);
+                                                } catch (error: any) {
+                                                    setError('Error al cambiar carpeta raíz: ' + error.message);
+                                                }
+                                            }}
+                                            className={`w-full text-left p-2 rounded text-xs ${
+                                                config?.rootFolderId === folder.id
+                                                    ? 'bg-blue-100 border border-blue-300'
+                                                    : 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
+                                            }`}
+                                        >
+                                            <Folder className="w-3 h-3 inline mr-1" />
+                                            {folder.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <div className="mt-3 flex space-x-2">
                         <button
                             onClick={handleRefreshFolders}
                             disabled={isLoadingFolders}

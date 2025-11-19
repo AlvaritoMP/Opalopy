@@ -1073,22 +1073,59 @@ ${relationships.join('\n')}
             const fileName = `informe_comparador_${Date.now()}.docx`;
             saveAs(blob, fileName);
             
-            if (savePdfToCandidates && selectedCandidates.length > 0) {
-                const dataUrl = await new Promise<string>((resolve, reject) => {
+            // Guardar en Google Drive si está configurado
+            let attachmentUrl: string | undefined;
+            let attachmentId: string = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            
+            const googleDriveConfig = state.settings?.googleDrive;
+            const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+            
+            if (isGoogleDriveConnected && googleDriveConfig && googleDriveConfig.rootFolderId) {
+                try {
+                    const { googleDriveService } = await import('../lib/googleDrive');
+                    googleDriveService.initialize(googleDriveConfig);
+                    
+                    // Obtener o crear carpeta "Reportes" dentro de la carpeta raíz
+                    const reportesFolder = await googleDriveService.getOrCreateSectionFolder('Reportes', googleDriveConfig.rootFolderId);
+                    
+                    // Convertir blob a File para subir
+                    const file = new File([blob], fileName, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+                    
+                    // Subir a Google Drive
+                    const uploadedFile = await googleDriveService.uploadFile(file, reportesFolder.id, fileName);
+                    attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                    attachmentId = uploadedFile.id;
+                    console.log(`✅ Informe Word guardado en Google Drive: Reportes/${fileName}`);
+                } catch (driveError: any) {
+                    console.error('Error subiendo a Google Drive, usando almacenamiento local:', driveError);
+                    // Fallback a Base64
+                    attachmentUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                }
+            } else {
+                // Usar Base64 si Google Drive no está configurado
+                attachmentUrl = await new Promise<string>((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result as string);
                     reader.onerror = reject;
                     reader.readAsDataURL(blob);
                 });
+            }
+            
+            if (savePdfToCandidates && selectedCandidates.length > 0 && attachmentUrl) {
                 for (const c of selectedCandidates) {
                     const updated = {
                         ...c,
                         attachments: [
                             ...c.attachments,
                             { 
-                                id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`, 
+                                id: attachmentId, 
                                 name: fileName, 
-                                url: dataUrl, 
+                                url: attachmentUrl, 
                                 type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
                                 size: blob.size 
                             },
@@ -1323,25 +1360,62 @@ ${relationships.join('\n')}
             }
 
             const fileName = `informe_comparador_${Date.now()}.pdf`;
-            doc.save(fileName);
-
-            if (savePdfToCandidates && selectedCandidates.length > 0) {
-                const pdfBlob = doc.output('blob');
-                const dataUrl = await new Promise<string>((resolve, reject) => {
+            const pdfBlob = doc.output('blob');
+            saveAs(pdfBlob, fileName);
+            
+            // Guardar en Google Drive si está configurado
+            let attachmentUrl: string | undefined;
+            let attachmentId: string = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            
+            const googleDriveConfig = state.settings?.googleDrive;
+            const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+            
+            if (isGoogleDriveConnected && googleDriveConfig && googleDriveConfig.rootFolderId) {
+                try {
+                    const { googleDriveService } = await import('../lib/googleDrive');
+                    googleDriveService.initialize(googleDriveConfig);
+                    
+                    // Obtener o crear carpeta "Reportes" dentro de la carpeta raíz
+                    const reportesFolder = await googleDriveService.getOrCreateSectionFolder('Reportes', googleDriveConfig.rootFolderId);
+                    
+                    // Convertir blob a File para subir
+                    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+                    
+                    // Subir a Google Drive
+                    const uploadedFile = await googleDriveService.uploadFile(file, reportesFolder.id, fileName);
+                    attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                    attachmentId = uploadedFile.id;
+                    console.log(`✅ Informe PDF guardado en Google Drive: Reportes/${fileName}`);
+                } catch (driveError: any) {
+                    console.error('Error subiendo a Google Drive, usando almacenamiento local:', driveError);
+                    // Fallback a Base64
+                    attachmentUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(pdfBlob);
+                    });
+                }
+            } else {
+                // Usar Base64 si Google Drive no está configurado
+                attachmentUrl = await new Promise<string>((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result as string);
                     reader.onerror = reject;
                     reader.readAsDataURL(pdfBlob);
                 });
+            }
+            
+            if (savePdfToCandidates && selectedCandidates.length > 0 && attachmentUrl) {
                 for (const c of selectedCandidates) {
                     const updated = {
                         ...c,
                         attachments: [
                             ...c.attachments,
                             { 
-                                id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`, 
+                                id: attachmentId, 
                                 name: fileName, 
-                                url: dataUrl, 
+                                url: attachmentUrl, 
                                 type: 'application/pdf', 
                                 size: pdfBlob.size 
                             },
