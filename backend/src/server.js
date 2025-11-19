@@ -47,8 +47,9 @@ app.use((err, req, res, next) => {
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor backend corriendo en http://localhost:${PORT}`);
+// Escuchar en 0.0.0.0 para que sea accesible desde Caddy/proxy
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor backend corriendo en http://0.0.0.0:${PORT}`);
     console.log(`📡 Frontend URL: ${FRONTEND_URL}`);
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'Se construirá automáticamente desde la request';
     console.log(`🔐 Google OAuth Redirect URI: ${redirectUri}`);

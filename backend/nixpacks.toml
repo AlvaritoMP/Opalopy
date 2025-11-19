@@ -1,9 +1,9 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "npm-10_x"]
+nixPkgs = ["nodejs_20", "npm-10_x", "caddy"]
 
 [phases.install]
 cmds = ["npm ci"]
 
 [start]
-cmd = "node src/server.js"
+cmd = "sh -c 'node src/server.js & sleep 2 && caddy run --config /app/Caddyfile --adapter caddyfile'"
 

@@ -1,0 +1,12 @@
+:80 {
+    # Reverse proxy al servidor Node.js
+    reverse_proxy localhost:5000
+    
+    # Headers de seguridad
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+    }
+}
+
