@@ -265,28 +265,56 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
             return;
         }
 
-        // Verificar si el popup se redirigió al frontend (con los parámetros de OAuth)
-        const checkRedirect = setInterval(() => {
-            try {
-                // Intentar acceder a la URL del popup para ver si se redirigió al frontend
-                if (popup?.location) {
-                    const popupUrl = popup.location.href;
-                    if (popupUrl.includes(window.location.origin) && popupUrl.includes('drive_connected=true')) {
-                        clearInterval(checkRedirect);
-                        console.log('✅ Popup redirigido al frontend con parámetros');
-                        // El useEffect del popup manejará el envío del mensaje
-                    }
-                }
-            } catch (e) {
-                // Error de cross-origin es normal, el popup aún está en Google o backend
-            }
-            
-            // Si el popup se cerró
+        // Verificar si el popup se cerró
+        const checkClosed = setInterval(() => {
             if (popup?.closed) {
-                clearInterval(checkRedirect);
+                clearInterval(checkClosed);
                 console.log('🔴 Popup cerrado');
                 window.removeEventListener('message', messageListener);
-                if (isConnecting) {
+                
+                // Si el popup se cerró pero no recibimos el mensaje, verificar si hay parámetros en la URL actual
+                // (esto puede pasar si el popup redirigió a la ventana principal en lugar de enviar un mensaje)
+                const urlParams = new URLSearchParams(window.location.search);
+                const driveConnected = urlParams.get('drive_connected');
+                const accessToken = urlParams.get('access_token');
+                
+                if (driveConnected === 'true' && accessToken) {
+                    console.log('✅ Parámetros encontrados en URL principal, procesando...');
+                    // Procesar directamente desde la URL
+                    (async () => {
+                        try {
+                            const refreshToken = urlParams.get('refresh_token');
+                            const tokenExpiry = urlParams.get('expires_in');
+                            const userEmail = urlParams.get('user_email');
+                            const userName = urlParams.get('user_name');
+                            const rootFolderId = urlParams.get('root_folder_id');
+
+                            const newConfig: GoogleDriveConfig = {
+                                connected: true,
+                                accessToken: accessToken,
+                                refreshToken: refreshToken || config?.refreshToken,
+                                tokenExpiry: tokenExpiry ? new Date(Date.now() + parseInt(tokenExpiry) * 1000).toISOString() : config?.tokenExpiry,
+                                userEmail: userEmail || config?.userEmail,
+                                userName: userName || config?.userName,
+                                rootFolderId: rootFolderId || config?.rootFolderId,
+                            };
+                            
+                            googleDriveService.setTokens(accessToken, refreshToken || '');
+                            await onConfigChange(newConfig);
+                            setSuccess('Conectado exitosamente a Google Drive');
+                            setIsConnecting(false);
+                            
+                            // Limpiar URL
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                            
+                            setTimeout(() => loadFolders(), 1000);
+                        } catch (error) {
+                            console.error('❌ Error procesando parámetros de URL:', error);
+                            setError('Error al procesar la conexión: ' + (error as Error).message);
+                            setIsConnecting(false);
+                        }
+                    })();
+                } else {
                     setIsConnecting(false);
                 }
             }
