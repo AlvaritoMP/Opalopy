@@ -8,6 +8,7 @@ function dbToSettings(dbSettings: any): AppSettings {
     return {
         database: dbSettings.database_config || { apiUrl: '', apiToken: '' },
         fileStorage: dbSettings.file_storage_config || { provider: 'None', connected: false },
+        googleDrive: dbSettings.google_drive_config || undefined,
         currencySymbol: dbSettings.currency_symbol || '$',
         appName: dbSettings.app_name || 'ATS Pro',
         logoUrl: dbSettings.logo_url || '',
@@ -23,6 +24,7 @@ function settingsToDb(settings: Partial<AppSettings>): any {
     const dbSettings: any = {};
     if (settings.database !== undefined) dbSettings.database_config = settings.database;
     if (settings.fileStorage !== undefined) dbSettings.file_storage_config = settings.fileStorage;
+    if (settings.googleDrive !== undefined) dbSettings.google_drive_config = settings.googleDrive;
     if (settings.currencySymbol !== undefined) dbSettings.currency_symbol = settings.currencySymbol;
     if (settings.appName !== undefined) dbSettings.app_name = settings.appName;
     if (settings.logoUrl !== undefined) dbSettings.logo_url = settings.logoUrl;
