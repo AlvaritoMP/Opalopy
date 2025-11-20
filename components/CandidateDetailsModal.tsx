@@ -54,8 +54,15 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     // Actualizar editableCandidate cuando el candidato se actualiza en el estado
     React.useEffect(() => {
         const updatedCandidate = state.candidates.find(c => c.id === initialCandidate.id);
-        if (updatedCandidate && !isEditing) {
-            setEditableCandidate(updatedCandidate);
+        if (updatedCandidate) {
+            // Si no estamos editando, actualizar editableCandidate con los datos del estado
+            if (!isEditing) {
+                setEditableCandidate(updatedCandidate);
+            }
+            // Actualizar preview si no hay uno seleccionado y hay attachments
+            if (!previewFile && updatedCandidate.attachments && updatedCandidate.attachments.length > 0) {
+                setPreviewFile(updatedCandidate.attachments[0]);
+            }
         }
     }, [state.candidates, initialCandidate.id, isEditing]);
     
