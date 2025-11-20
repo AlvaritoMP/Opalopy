@@ -224,11 +224,29 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
                 
                 console.log(`✅ Archivo subido a Google Drive: ${finalFolderName} - ${uploadedFile.name}`);
+                console.log(`✅ Attachment guardado:`, newAttachment);
+                console.log(`✅ Candidato actualizado con ${updatedCandidate.attachments.length} attachments`);
                 
                 // Actualizar preview si no hay uno seleccionado
                 if (!previewFile) {
                     setPreviewFile(newAttachment);
                 }
+                
+                // Forzar actualización del estado local después de un breve delay para asegurar que la BD se actualizó
+                setTimeout(async () => {
+                    try {
+                        const { candidatesApi } = await import('../lib/api/candidates');
+                        const refreshedCandidate = await candidatesApi.getById(editableCandidate.id);
+                        if (refreshedCandidate) {
+                            setEditableCandidate(refreshedCandidate);
+                            // Actualizar también el estado global
+                            await actions.updateCandidate(refreshedCandidate, state.currentUser?.name);
+                            console.log(`✅ Candidato refrescado desde BD con ${refreshedCandidate.attachments.length} attachments`);
+                        }
+                    } catch (error) {
+                        console.error('Error refrescando candidato:', error);
+                    }
+                }, 500);
                 
             } catch (error: any) {
                 console.error('Error subiendo a Google Drive:', error);
