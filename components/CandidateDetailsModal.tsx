@@ -304,11 +304,16 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         // Si el archivo está en Google Drive, eliminarlo de allí también
         if (attachment?.url?.includes('drive.google.com') && state.settings?.googleDrive?.connected) {
             try {
-                const fileId = attachment.id; // El ID del attachment es el fileId de Google Drive
-                const { googleDriveService } = await import('../lib/googleDrive');
-                googleDriveService.initialize(state.settings.googleDrive);
-                await googleDriveService.deleteFile(fileId);
-                console.log(`✅ Archivo eliminado de Google Drive: ${attachment.name}`);
+                // Extraer el ID de Google Drive de la URL
+                // La URL es: https://drive.google.com/file/d/{FILE_ID}/view
+                const urlMatch = attachment.url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+                if (urlMatch && urlMatch[1]) {
+                    const googleDriveFileId = urlMatch[1];
+                    const { googleDriveService } = await import('../lib/googleDrive');
+                    googleDriveService.initialize(state.settings.googleDrive);
+                    await googleDriveService.deleteFile(googleDriveFileId);
+                    console.log(`✅ Archivo eliminado de Google Drive: ${attachment.name}`);
+                }
             } catch (error: any) {
                 console.error('Error eliminando archivo de Google Drive:', error);
                 // Continuar con la eliminación del registro aunque falle la eliminación del archivo
