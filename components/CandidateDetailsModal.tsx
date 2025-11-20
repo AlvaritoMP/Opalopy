@@ -195,11 +195,14 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 );
                 
                 // Crear attachment con URL de visualización de Google Drive
+                // Generar un UUID para el attachment (la tabla requiere UUID, no el ID de Google Drive)
+                const attachmentId = `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                // Guardar el ID de Google Drive en la URL para poder eliminarlo después
                 const newAttachment: Attachment = {
-                    id: uploadedFile.id,
+                    id: attachmentId,
                     name: file.name,
-                    url: attachmentUrl,
+                    url: attachmentUrl, // La URL contiene el ID de Google Drive
                     type: file.type,
                     size: file.size,
                     category: categoryId || undefined,

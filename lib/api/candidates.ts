@@ -209,17 +209,25 @@ export const candidatesApi = {
 
         // Guardar attachments si existen
         if (candidateData.attachments && candidateData.attachments.length > 0) {
-            const attachmentsToInsert = candidateData.attachments.map(att => ({
-                id: att.id,
-                candidate_id: data.id,
-                name: att.name,
-                url: att.url,
-                type: att.type,
-                size: att.size,
-                category: att.category || null,
-                uploaded_at: att.uploadedAt || new Date().toISOString(),
-                comment_id: null,
-            }));
+            const attachmentsToInsert = candidateData.attachments.map(att => {
+                // Generar UUID si el ID no es un UUID válido
+                let attachmentId = att.id;
+                if (!attachmentId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+                    attachmentId = crypto.randomUUID();
+                }
+                
+                return {
+                    id: attachmentId,
+                    candidate_id: data.id,
+                    name: att.name,
+                    url: att.url,
+                    type: att.type,
+                    size: att.size,
+                    category: att.category || null,
+                    uploaded_at: att.uploadedAt || new Date().toISOString(),
+                    comment_id: null,
+                };
+            });
 
             const { error: attError } = await supabase
                 .from('attachments')
@@ -227,6 +235,8 @@ export const candidatesApi = {
 
             if (attError) {
                 console.error('Error guardando attachments al crear candidato:', attError);
+            } else {
+                console.log(`✅ ${attachmentsToInsert.length} attachments guardados al crear candidato`);
             }
         }
 
@@ -280,8 +290,15 @@ export const candidatesApi = {
 
             // Insertar o actualizar attachments
             for (const attachment of candidateData.attachments) {
+                // Generar UUID si el ID no es un UUID válido
+                let attachmentId = attachment.id;
+                if (!attachmentId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+                    // Si no es UUID, generar uno nuevo
+                    attachmentId = crypto.randomUUID();
+                }
+                
                 const attachmentData = {
-                    id: attachment.id,
+                    id: attachmentId,
                     candidate_id: id,
                     name: attachment.name,
                     url: attachment.url,
@@ -299,6 +316,9 @@ export const candidatesApi = {
 
                 if (attError) {
                     console.error('Error guardando attachment:', attError);
+                    console.error('Attachment data:', attachmentData);
+                } else {
+                    console.log(`✅ Attachment guardado en BD: ${attachment.name} (ID: ${attachmentId})`);
                 }
             }
         }
