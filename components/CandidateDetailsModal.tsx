@@ -140,101 +140,123 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         const process = state.processes.find(p => p.id === editableCandidate.processId);
         const processHasFolder = process?.googleDriveFolderId;
         
-        // Usar la carpeta del candidato si existe, si no, usar la del proceso
-        const candidateHasFolder = editableCandidate.googleDriveFolderId;
-        const targetFolderId = candidateHasFolder || processHasFolder;
+        // Si Google Drive está conectado, DEBE usarse (no hay fallback a local)
+        if (isGoogleDriveConnected && googleDriveConfig) {
+            if (!processHasFolder) {
+                alert('⚠️ Google Drive está conectado pero este proceso no tiene una carpeta configurada. Ve a Procesos → Editar Proceso para configurar una carpeta de Google Drive.');
+                setPendingFile(null);
+                setShowCategoryModal(false);
+                setSelectedCategory('');
+                return;
+            }
 
-        let attachmentUrl: string;
-        let attachmentId: string = `att-c-${Date.now()}`;
-
-        // Si Google Drive está conectado y hay carpeta (del candidato o del proceso), subir a Google Drive
-        if (isGoogleDriveConnected && targetFolderId && googleDriveConfig) {
             try {
                 const { googleDriveService } = await import('../lib/googleDrive');
                 googleDriveService.initialize(googleDriveConfig);
                 
-                // Si el candidato no tiene carpeta pero el proceso sí, crear la carpeta del candidato ahora
-                let finalFolderId: string | null = null;
-                let finalFolderName: string | null = null;
+                // PASO 1: Asegurar que el candidato tenga carpeta (crearla si no existe)
+                let finalFolderId: string;
+                let finalFolderName: string;
                 
-                if (candidateHasFolder) {
+                if (editableCandidate.googleDriveFolderId) {
                     // El candidato ya tiene carpeta, usarla
-                    finalFolderId = editableCandidate.googleDriveFolderId!;
-                    finalFolderName = editableCandidate.googleDriveFolderName || null;
-                } else if (processHasFolder) {
+                    finalFolderId = editableCandidate.googleDriveFolderId;
+                    finalFolderName = editableCandidate.googleDriveFolderName || editableCandidate.name || 'Candidato';
+                } else {
                     // Crear carpeta del candidato dentro de la carpeta del proceso
-                    try {
-                        const candidateFolderName = `${editableCandidate.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
-                        const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
-                        finalFolderId = folder.id; // Usar la carpeta recién creada
-                        finalFolderName = folder.name;
-                        
-                        // Actualizar el candidato con la nueva carpeta
-                        const updatedCandidate = {
-                            ...editableCandidate,
-                            googleDriveFolderId: folder.id,
-                            googleDriveFolderName: folder.name,
-                        };
-                        setEditableCandidate(updatedCandidate);
-                        await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
-                        console.log(`✅ Carpeta del candidato creada automáticamente: ${folder.name} (dentro de ${process.googleDriveFolderName})`);
-                    } catch (error: any) {
-                        console.error('Error creando carpeta del candidato:', error);
-                        // Si falla, usar la carpeta del proceso como fallback
-                        finalFolderId = process.googleDriveFolderId;
-                        finalFolderName = process.googleDriveFolderName || null;
-                    }
+                    const candidateFolderName = `${editableCandidate.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+                    const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
+                    finalFolderId = folder.id;
+                    finalFolderName = folder.name;
+                    
+                    // Actualizar el candidato con la nueva carpeta ANTES de subir el archivo
+                    const candidateWithFolder = {
+                        ...editableCandidate,
+                        googleDriveFolderId: folder.id,
+                        googleDriveFolderName: folder.name,
+                    };
+                    setEditableCandidate(candidateWithFolder);
+                    await actions.updateCandidate(candidateWithFolder, state.currentUser?.name);
+                    console.log(`✅ Carpeta del candidato creada: ${folder.name} (dentro de ${process.googleDriveFolderName})`);
                 }
                 
-                if (!finalFolderId) {
-                    throw new Error('No hay carpeta disponible para subir el archivo');
-                }
-                
-                // Subir archivo a Google Drive (a la carpeta del candidato si existe, si no a la del proceso)
+                // PASO 2: Subir archivo a Google Drive en la carpeta del candidato
                 const uploadedFile = await googleDriveService.uploadFile(
                     file,
                     finalFolderId,
                     file.name
                 );
                 
-                // Usar URL de visualización de Google Drive
-                attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
-                attachmentId = uploadedFile.id;
-                const folderName = finalFolderName || editableCandidate.googleDriveFolderName || process?.googleDriveFolderName || 'Carpeta';
-                console.log(`✅ Archivo subido a Google Drive en carpeta del candidato: ${folderName} - ${uploadedFile.name}`);
+                // Crear attachment con URL de visualización de Google Drive
+                const attachmentUrl = googleDriveService.getFileViewUrl(uploadedFile.id);
+                const newAttachment: Attachment = {
+                    id: uploadedFile.id,
+                    name: file.name,
+                    url: attachmentUrl,
+                    type: file.type,
+                    size: file.size,
+                    category: categoryId || undefined,
+                    uploadedAt: new Date().toISOString(),
+                };
+                
+                // PASO 3: Actualizar el candidato con el nuevo attachment
+                // Usar el candidato más reciente (puede haber sido actualizado al crear la carpeta)
+                const currentCandidateForUpdate = editableCandidate.googleDriveFolderId === finalFolderId 
+                    ? editableCandidate 
+                    : { ...editableCandidate, googleDriveFolderId: finalFolderId, googleDriveFolderName: finalFolderName };
+                
+                const updatedCandidate = { 
+                    ...currentCandidateForUpdate, 
+                    attachments: [...(currentCandidateForUpdate.attachments || []), newAttachment] 
+                };
+                
+                // Actualizar estado local primero para reflejo inmediato
+                setEditableCandidate(updatedCandidate);
+                
+                // Luego actualizar en la base de datos
+                await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+                
+                console.log(`✅ Archivo subido a Google Drive: ${finalFolderName} - ${uploadedFile.name}`);
+                
+                // Actualizar preview si no hay uno seleccionado
+                if (!previewFile) {
+                    setPreviewFile(newAttachment);
+                }
+                
             } catch (error: any) {
-                console.error('Error subiendo a Google Drive, usando almacenamiento local:', error);
-                alert(`Error al subir a Google Drive: ${error.message}. El archivo se guardará localmente.`);
-                // Fallback a Base64 si falla Google Drive
-                attachmentUrl = await fileToBase64(file);
+                console.error('Error subiendo a Google Drive:', error);
+                alert(`Error al subir a Google Drive: ${error.message}. Por favor, intenta nuevamente.`);
+                setPendingFile(null);
+                setShowCategoryModal(false);
+                setSelectedCategory('');
+                return;
             }
         } else {
-            // Usar Base64 si Google Drive no está configurado
-            if (isGoogleDriveConnected && !processHasFolder) {
-                console.warn('⚠️ Google Drive está conectado pero el proceso no tiene carpeta configurada. El archivo se guardará localmente.');
-                alert('⚠️ Google Drive está conectado pero este proceso no tiene una carpeta configurada. El archivo se guardará localmente. Ve a Procesos → Editar Proceso para configurar una carpeta de Google Drive.');
-            } else if (!isGoogleDriveConnected) {
-                console.log('ℹ️ Google Drive no está conectado. El archivo se guardará localmente (Base64).');
+            // Solo usar Base64 si Google Drive NO está conectado
+            const attachmentUrl = await fileToBase64(file);
+            const attachmentId = `att-c-${Date.now()}`;
+            
+            const newAttachment: Attachment = {
+                id: attachmentId,
+                name: file.name,
+                url: attachmentUrl,
+                type: file.type,
+                size: file.size,
+                category: categoryId || undefined,
+                uploadedAt: new Date().toISOString(),
+            };
+            
+            const updatedCandidate = { 
+                ...editableCandidate, 
+                attachments: [...(editableCandidate.attachments || []), newAttachment] 
+            };
+            setEditableCandidate(updatedCandidate);
+            await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+            
+            // Actualizar preview si no hay uno seleccionado
+            if (!previewFile) {
+                setPreviewFile(newAttachment);
             }
-            attachmentUrl = await fileToBase64(file);
-        }
-
-        const newAttachment: Attachment = {
-            id: attachmentId,
-            name: file.name,
-            url: attachmentUrl,
-            type: file.type,
-            size: file.size,
-            category: categoryId || undefined,
-            uploadedAt: new Date().toISOString(),
-        };
-        const updatedCandidate = { ...editableCandidate, attachments: [...(editableCandidate.attachments || []), newAttachment] };
-        setEditableCandidate(updatedCandidate);
-        await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
-        
-        // Actualizar preview si no hay uno seleccionado
-        if (!previewFile) {
-            setPreviewFile(newAttachment);
         }
         
         setPendingFile(null);
@@ -276,6 +298,32 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             await actions.archiveCandidate(initialCandidate.id);
         }
         onClose();
+    };
+
+    const handleDeleteCandidate = async () => {
+        const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar a ${currentCandidate.name}? Esta acción no se puede deshacer y también se eliminará su carpeta en Google Drive si existe.`);
+        if (!confirmDelete) return;
+        
+        try {
+            // Si el candidato tiene carpeta en Google Drive, eliminarla
+            if (currentCandidate.googleDriveFolderId && state.settings?.googleDrive?.connected) {
+                try {
+                    const { googleDriveService } = await import('../lib/googleDrive');
+                    googleDriveService.initialize(state.settings.googleDrive);
+                    await googleDriveService.deleteFolder(currentCandidate.googleDriveFolderId!);
+                    console.log(`✅ Carpeta del candidato eliminada de Google Drive`);
+                } catch (error: any) {
+                    console.error('Error eliminando carpeta de Google Drive:', error);
+                    // Continuar con la eliminación aunque falle la eliminación de la carpeta
+                }
+            }
+            
+            await actions.deleteCandidate(currentCandidate.id);
+            onClose();
+        } catch (error: any) {
+            console.error('Error eliminando candidato:', error);
+            alert(`Error al eliminar candidato: ${error.message}`);
+        }
     };
 
     const handleExportZip = async () => {
@@ -404,13 +452,22 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             {isExporting ? 'Exportando...' : 'Exportar ZIP'}
                         </button>
                         {canEdit && (
-                            <button
-                                onClick={handleArchiveToggle}
-                                className={`flex items-center px-3 py-1.5 border rounded-md text-sm font-medium ${isArchived ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
-                            >
-                                {isArchived ? <Undo2 className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
-                                {isArchived ? 'Restaurar' : 'Archivar'}
-                            </button>
+                            <>
+                                <button
+                                    onClick={handleArchiveToggle}
+                                    className={`flex items-center px-3 py-1.5 border rounded-md text-sm font-medium ${isArchived ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
+                                >
+                                    {isArchived ? <Undo2 className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
+                                    {isArchived ? 'Restaurar' : 'Archivar'}
+                                </button>
+                                <button
+                                    onClick={handleDeleteCandidate}
+                                    className="flex items-center px-3 py-1.5 bg-red-600 text-white border border-red-600 rounded-md text-sm font-medium hover:bg-red-700"
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Eliminar
+                                </button>
+                            </>
                         )}
                         {canEdit && !isEditing && (
                             <>
@@ -632,14 +689,24 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                     <div className="w-full h-full">
                                     {previewFile.type.startsWith('image/') ? (
                                         <img src={previewFile.url} alt={previewFile.name} className="w-full h-full object-contain" />
-                                    ) : previewFile.type === 'application/pdf' ? (
-                                        <iframe src={previewFile.url} title={previewFile.name} className="w-full h-full border-0 rounded-lg bg-white" />
+                                    ) : previewFile.type === 'application/pdf' || previewFile.url.includes('drive.google.com') ? (
+                                        <iframe 
+                                            src={previewFile.url} 
+                                            title={previewFile.name} 
+                                            className="w-full h-full border-0 rounded-lg bg-white"
+                                            allow="fullscreen"
+                                        />
                                     ) : (
-                                        <div className="text-center">
+                                        <div className="text-center p-8">
                                             <FileText className="w-16 h-16 mx-auto text-gray-400" />
                                             <p className="mt-2 text-gray-600">No hay vista previa disponible para este tipo de archivo.</p>
-                                            <a href={previewFile.url} download={previewFile.name} className="mt-4 inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg">
-                                                <Download className="w-4 h-4 mr-2" /> Descargar "{previewFile.name}"
+                                            <a 
+                                                href={previewFile.url} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer"
+                                                className="mt-4 inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                                            >
+                                                <Download className="w-4 h-4 mr-2" /> {previewFile.url.includes('drive.google.com') ? 'Abrir en Google Drive' : `Descargar "${previewFile.name}"`}
                                             </a>
                                         </div>
                                     )}
