@@ -550,19 +550,22 @@ const App: React.FC = () => {
                     }
                 }
                 
+                // Eliminar en la base de datos PRIMERO
                 await processesApi.delete(processId);
+                console.log(`✅ Proceso eliminado de la base de datos: ${processId}`);
+                
+                // Solo actualizar el estado local si la eliminación en BD fue exitosa
                 setState(s => ({
                     ...s,
                     processes: s.processes.filter(p => p.id !== processId),
                     candidates: s.candidates.filter(c => c.processId !== processId),
                 }));
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Error deleting process:', error);
-                setState(s => ({
-                    ...s,
-                    processes: s.processes.filter(p => p.id !== processId),
-                    candidates: s.candidates.filter(c => c.processId !== processId),
-                }));
+                // Mostrar error al usuario
+                alert(`Error al eliminar el proceso: ${error.message || 'No se pudo eliminar el proceso. Verifique los permisos y la conexión a la base de datos.'}`);
+                // NO actualizar el estado local si falla la eliminación en BD
+                throw error; // Re-lanzar el error para que el componente pueda manejarlo
             }
         },
         addCandidate: async (candidateData) => {

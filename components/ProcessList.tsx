@@ -136,9 +136,14 @@ export const ProcessList: React.FC = () => {
         setIsEditorOpen(true);
     };
 
-    const handleDelete = (processId: string) => {
+    const handleDelete = async (processId: string) => {
         if (window.confirm('¿Seguro que deseas eliminar este proceso y todos sus candidatos? Esta acción no se puede deshacer.')) {
-            actions.deleteProcess(processId);
+            try {
+                await actions.deleteProcess(processId);
+            } catch (error: any) {
+                // El error ya se muestra en el alert dentro de deleteProcess
+                console.error('Error al eliminar proceso:', error);
+            }
         }
     };
 

@@ -212,12 +212,57 @@ export const processesApi = {
 
     // Eliminar proceso
     async delete(id: string): Promise<void> {
-        const { error } = await supabase
+        // Primero eliminar las relaciones dependientes
+        // Eliminar stages
+        const { error: stagesError } = await supabase
+            .from('stages')
+            .delete()
+            .eq('process_id', id);
+        
+        if (stagesError) {
+            console.error('Error eliminando stages:', stagesError);
+            throw new Error(`Error al eliminar etapas del proceso: ${stagesError.message}`);
+        }
+        
+        // Eliminar document_categories
+        const { error: categoriesError } = await supabase
+            .from('document_categories')
+            .delete()
+            .eq('process_id', id);
+        
+        if (categoriesError) {
+            console.error('Error eliminando categorías:', categoriesError);
+            throw new Error(`Error al eliminar categorías del proceso: ${categoriesError.message}`);
+        }
+        
+        // Eliminar attachments del proceso
+        const { error: attachmentsError } = await supabase
+            .from('attachments')
+            .delete()
+            .eq('process_id', id);
+        
+        if (attachmentsError) {
+            console.error('Error eliminando attachments:', attachmentsError);
+            // No lanzar error, continuar con la eliminación
+        }
+        
+        // Finalmente eliminar el proceso
+        const { error, data } = await supabase
             .from('processes')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .select();
         
-        if (error) throw error;
+        if (error) {
+            console.error('Error eliminando proceso:', error);
+            throw new Error(`Error al eliminar proceso: ${error.message} (Código: ${error.code})`);
+        }
+        
+        if (!data || data.length === 0) {
+            throw new Error('El proceso no se encontró o ya fue eliminado');
+        }
+        
+        console.log(`✅ Proceso eliminado correctamente: ${id}`);
     },
 };
 
