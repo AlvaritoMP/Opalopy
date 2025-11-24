@@ -415,6 +415,7 @@ const App: React.FC = () => {
                     view: { type: 'dashboard' },
                     lastViewedProcessId: null,
                     loading: false,
+                    toasts: [],
                 });
             } catch (error) {
                 console.error('Error loading data:', error);
@@ -444,6 +445,7 @@ const App: React.FC = () => {
                     view: { type: 'dashboard' },
                     lastViewedProcessId: null,
                     loading: false,
+                    toasts: [],
                 });
             }
         };
@@ -1109,7 +1111,7 @@ const App: React.FC = () => {
                 <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
                     {renderView()}
                 </div>
-                <ToastContainer toasts={state.toasts} onClose={(id) => actions.hideToast(id)} />
+                <ToastContainer toasts={state.toasts || []} onClose={(id) => actions.hideToast(id)} />
             </div>
         </AppContext.Provider>
     );
