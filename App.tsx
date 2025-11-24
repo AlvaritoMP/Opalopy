@@ -340,32 +340,40 @@ const App: React.FC = () => {
                 console.log('Loading data from Supabase...');
                 
                 // Cargar datos de Supabase con timeouts y mejor manejo de errores
-                const loadWithFallback = async <T,>(
+                const loadWithEmptyFallback = async <T,>(
                     apiCall: () => Promise<T>,
-                    fallback: T,
-                    name: string
+                    emptyFallback: T,
+                    name: string,
+                    useEmptyFallback: boolean = false
                 ): Promise<T> => {
                     try {
                         const result = await Promise.race([
                             apiCall(),
                             new Promise<T>((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 5000)
+                                setTimeout(() => reject(new Error('Timeout')), 10000)
                             )
                         ]);
                         console.log(`✓ Loaded ${name} from Supabase`);
                         return result;
                     } catch (error) {
-                        console.warn(`⚠ Failed to load ${name} from Supabase, using fallback:`, error);
-                        return fallback;
+                        console.error(`❌ Failed to load ${name} from Supabase:`, error);
+                        if (useEmptyFallback) {
+                            console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
+                            return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
+                        }
+                        console.warn(`⚠ Using fallback data for ${name}`);
+                        return emptyFallback;
                     }
                 };
 
+                // Para procesos, candidatos y usuarios, usar arrays vacíos si falla (no datos de prueba)
+                // Solo settings puede usar fallback porque puede venir de localStorage
                 const [processes, candidates, users, interviewEvents, settings] = await Promise.all([
-                    loadWithFallback(() => processesApi.getAll(), initialProcesses, 'processes'),
-                    loadWithFallback(() => candidatesApi.getAll(), initialCandidates, 'candidates'),
-                    loadWithFallback(() => usersApi.getAll(), initialUsers, 'users'),
-                    loadWithFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents'),
-                    loadWithFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings'),
+                    loadWithEmptyFallback(() => processesApi.getAll(), initialProcesses, 'processes', true),
+                    loadWithEmptyFallback(() => candidatesApi.getAll(), initialCandidates, 'candidates', true),
+                    loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
+                    loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
+                    loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
                 ]);
 
                 const sessionUserId = localStorage.getItem('ats_pro_user');
@@ -407,20 +415,28 @@ const App: React.FC = () => {
                 });
             } catch (error) {
                 console.error('Error loading data:', error);
-                // Fallback a datos locales
+                // NO usar datos de prueba como fallback - usar arrays vacíos
                 const loadedSettings = getSettings();
                 const sessionUserId = localStorage.getItem('ats_pro_user');
-                const currentUser = sessionUserId ? initialUsers.find(u => u.id === sessionUserId) || null : null;
+                let currentUser: User | null = null;
                 
-                console.log('Using local fallback data');
+                if (sessionUserId) {
+                    try {
+                        currentUser = await usersApi.getById(sessionUserId);
+                    } catch (err) {
+                        console.error('Error loading current user:', err);
+                    }
+                }
+                
+                console.warn('⚠ Using empty arrays - no fallback data');
                 setState({
-                    processes: initialProcesses,
-                    candidates: initialCandidates,
-                    users: initialUsers,
+                    processes: [],
+                    candidates: [],
+                    users: [],
                     applications: [],
                     settings: loadedSettings || initialSettings,
                     formIntegrations: initialFormIntegrations,
-                    interviewEvents: initialInterviewEvents,
+                    interviewEvents: [],
                     currentUser,
                     view: { type: 'dashboard' },
                     lastViewedProcessId: null,

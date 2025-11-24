@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppState } from '../App';
-import { Plus, MoreVertical, Eye, Edit, Trash2, Users, RefreshCw, Copy } from 'lucide-react';
+import { Plus, MoreVertical, Eye, Edit, Trash2, Users, RefreshCw, Copy, Search, X } from 'lucide-react';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { Process, UserRole, ProcessStatus } from '../types';
 
@@ -130,6 +130,7 @@ export const ProcessList: React.FC = () => {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingProcess, setEditingProcess] = useState<Process | null>(null);
     const [statusFilter, setStatusFilter] = useState<ProcessStatus | 'all'>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const [isReloading, setIsReloading] = useState(false);
     
     const canManageProcesses = ['admin', 'recruiter'].includes(state.currentUser?.role as UserRole);
@@ -201,7 +202,34 @@ export const ProcessList: React.FC = () => {
         { id: 'terminado', label: 'Terminado' },
     ];
 
-    const filteredProcesses = state.processes.filter(process => statusFilter === 'all' ? true : (process.status || 'en_proceso') === statusFilter);
+    // Filtrar procesos por estado y búsqueda
+    const filteredProcesses = useMemo(() => {
+        let filtered = state.processes.filter(process => 
+            statusFilter === 'all' ? true : (process.status || 'en_proceso') === statusFilter
+        );
+
+        // Aplicar filtro de búsqueda si hay un término
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase().trim();
+            filtered = filtered.filter(process => {
+                // Buscar en título
+                if (process.title?.toLowerCase().includes(query)) return true;
+                // Buscar en descripción
+                if (process.description?.toLowerCase().includes(query)) return true;
+                // Buscar en código de orden de servicio
+                if (process.serviceOrderCode?.toLowerCase().includes(query)) return true;
+                // Buscar en rango salarial
+                if (process.salaryRange?.toLowerCase().includes(query)) return true;
+                // Buscar en nivel de experiencia
+                if (process.experienceLevel?.toLowerCase().includes(query)) return true;
+                // Buscar en seniority
+                if (process.seniority?.toLowerCase().includes(query)) return true;
+                return false;
+            });
+        }
+
+        return filtered;
+    }, [state.processes, statusFilter, searchQuery]);
 
     return (
         <div className="p-8 overflow-y-auto h-full">
@@ -227,6 +255,38 @@ export const ProcessList: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Barra de búsqueda */}
+            <div className="mb-6">
+                <div className="relative max-w-md">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                        type="text"
+                        placeholder="Buscar procesos por título, descripción, código OS..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    />
+                    {searchQuery && (
+                        <button
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            title="Limpiar búsqueda"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    )}
+                </div>
+                {searchQuery && (
+                    <p className="mt-2 text-sm text-gray-500">
+                        {filteredProcesses.length === 0 
+                            ? 'No se encontraron procesos que coincidan con la búsqueda'
+                            : `${filteredProcesses.length} proceso${filteredProcesses.length !== 1 ? 's' : ''} encontrado${filteredProcesses.length !== 1 ? 's' : ''}`
+                        }
+                    </p>
+                )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-2 mb-6">
                 {statusFilters.map(filter => (
                     <button
@@ -239,7 +299,17 @@ export const ProcessList: React.FC = () => {
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProcesses.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+                    <p className="text-gray-500 text-lg">
+                        {searchQuery || statusFilter !== 'all' 
+                            ? 'No se encontraron procesos que coincidan con los filtros seleccionados'
+                            : 'No hay procesos disponibles. Crea tu primer proceso para comenzar.'
+                        }
+                    </p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredProcesses.map(process => (
                     <ProcessCard
                         key={process.id}
@@ -259,8 +329,9 @@ export const ProcessList: React.FC = () => {
                         onDuplicate={() => handleDuplicate(process)}
                         onDelete={() => handleDelete(process.id)}
                     />
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
             {isEditorOpen && <ProcessEditorModal process={editingProcess} onClose={() => setIsEditorOpen(false)} />}
         </div>
     );
