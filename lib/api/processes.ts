@@ -51,8 +51,8 @@ function processToDb(process: Partial<Process>): any {
     if (process.seniority !== undefined) dbProcess.seniority = process.seniority;
     if (process.flyerUrl !== undefined) dbProcess.flyer_url = process.flyerUrl;
     if (process.serviceOrderCode !== undefined) dbProcess.service_order_code = process.serviceOrderCode;
-    if (process.startDate !== undefined) dbProcess.start_date = process.startDate;
-    if (process.endDate !== undefined) dbProcess.end_date = process.endDate;
+    if (process.startDate !== undefined) dbProcess.start_date = process.startDate && process.startDate.trim() !== '' ? process.startDate : null;
+    if (process.endDate !== undefined) dbProcess.end_date = process.endDate && process.endDate.trim() !== '' ? process.endDate : null;
     if (process.status !== undefined) dbProcess.status = process.status;
     if (process.vacancies !== undefined) dbProcess.vacancies = process.vacancies;
     if (process.googleDriveFolderId !== undefined) dbProcess.google_drive_folder_id = process.googleDriveFolderId;
