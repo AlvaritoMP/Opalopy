@@ -29,6 +29,9 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
     const [startDate, setStartDate] = useState(process?.startDate || '');
     const [endDate, setEndDate] = useState(process?.endDate || '');
     const [flyerUrl, setFlyerUrl] = useState(process?.flyerUrl || '');
+    const [flyerPosition, setFlyerPosition] = useState<string>(process?.flyerPosition || 'center center');
+    const [showFlyerEditor, setShowFlyerEditor] = useState(false);
+    const [isDraggingFlyer, setIsDraggingFlyer] = useState(false);
     const [attachments, setAttachments] = useState<Attachment[]>(process?.attachments || []);
     const [stages, setStages] = useState<Stage[]>(process?.stages || [{ id: `new-${Date.now()}`, name: 'Applied' }]);
     const [status, setStatus] = useState<ProcessStatus>(process?.status || 'en_proceso');
@@ -162,7 +165,35 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         if (file && file.type.startsWith('image/')) {
             const dataUrl = await fileToBase64(file);
             setFlyerUrl(dataUrl);
+            setFlyerPosition('center center'); // Resetear posición al subir nueva imagen
+            setShowFlyerEditor(true); // Mostrar editor automáticamente
         }
+    };
+
+    const handleFlyerPositionChange = (x: number, y: number) => {
+        // Convertir coordenadas a porcentajes para CSS background-position
+        setFlyerPosition(`${x}% ${y}%`);
+    };
+
+    const handleFlyerEditorMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!flyerUrl) return;
+        setIsDraggingFlyer(true);
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        handleFlyerPositionChange(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
+    };
+
+    const handleFlyerEditorMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!isDraggingFlyer || !flyerUrl) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        handleFlyerPositionChange(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
+    };
+
+    const handleFlyerEditorMouseUp = () => {
+        setIsDraggingFlyer(false);
     };
     
     const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -203,8 +234,9 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
             attachmentUrl = await fileToBase64(file);
         }
 
-        // Si estamos editando un proceso existente, guardar attachment inmediatamente en la BD
-        if (process) {
+        // Si estamos editando un proceso existente (no duplicado), guardar attachment inmediatamente en la BD
+        const isExistingProcess = process && process.id && !process.id.startsWith('temp-') && state.processes.some(p => p.id === process.id);
+        if (isExistingProcess) {
             try {
                 const { attachmentsApi } = await import('../lib/api');
                 const savedAttachment = await attachmentsApi.create({
@@ -248,8 +280,9 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
     };
 
     const handleDeleteAttachment = async (id: string) => {
-        // Si estamos editando un proceso, eliminar de la base de datos también
-        if (process) {
+        // Si estamos editando un proceso existente (no duplicado), eliminar de la base de datos también
+        const isExistingProcess = process && process.id && !process.id.startsWith('temp-') && state.processes.some(p => p.id === process.id);
+        if (isExistingProcess) {
             try {
                 const { attachmentsApi } = await import('../lib/api');
                 await attachmentsApi.delete(id);
@@ -279,7 +312,8 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
             seniority, 
             startDate, 
             endDate, 
-            flyerUrl, 
+            flyerUrl,
+            flyerPosition: flyerPosition || undefined,
             attachments, 
             status, 
             vacancies,
@@ -289,7 +323,11 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         };
 
         try {
-            if (process) {
+            // Verificar si es un proceso existente (tiene ID y existe en la BD)
+            // Los procesos duplicados tienen IDs temporales que empiezan con "temp-"
+            const isExistingProcess = process && process.id && !process.id.startsWith('temp-') && state.processes.some(p => p.id === process.id);
+            
+            if (isExistingProcess) {
                 await actions.updateProcess({ ...process, ...processData });
             } else {
                 await actions.addProcess(processData);
@@ -459,10 +497,96 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                         {/* Flyer */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700">Flyer Image</label>
-                            <div className="mt-1 flex items-center space-x-4">
-                                {flyerUrl && <img src={flyerUrl} alt="Flyer preview" className="w-24 h-16 object-cover rounded-md" />}
-                                <button type="button" onClick={() => flyerInputRef.current?.click()} className="px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">{flyerUrl ? 'Change Image' : 'Upload Image'}</button>
-                                <input type="file" accept="image/*" ref={flyerInputRef} onChange={handleFlyerUpload} className="hidden" />
+                            <div className="mt-1 space-y-3">
+                                <div className="flex items-center space-x-4">
+                                    {flyerUrl && (
+                                        <div className="relative">
+                                            <div 
+                                                className="w-24 h-16 rounded-md overflow-hidden border-2 border-gray-300"
+                                                style={{
+                                                    backgroundImage: `url(${flyerUrl})`,
+                                                    backgroundSize: 'cover',
+                                                    backgroundPosition: flyerPosition || 'center center',
+                                                    backgroundRepeat: 'no-repeat'
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="flex flex-col space-y-2">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => flyerInputRef.current?.click()} 
+                                            className="px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                        >
+                                            {flyerUrl ? 'Cambiar Imagen' : 'Subir Imagen'}
+                                        </button>
+                                        {flyerUrl && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setShowFlyerEditor(!showFlyerEditor)} 
+                                                className="px-3 py-2 bg-primary-100 border border-primary-300 rounded-md shadow-sm text-sm font-medium text-primary-700 hover:bg-primary-200"
+                                            >
+                                                {showFlyerEditor ? 'Ocultar Editor' : 'Ajustar Posición'}
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input type="file" accept="image/*" ref={flyerInputRef} onChange={handleFlyerUpload} className="hidden" />
+                                </div>
+                                
+                                {showFlyerEditor && flyerUrl && (
+                                    <div className="border rounded-lg p-4 bg-gray-50">
+                                        <p className="text-sm text-gray-600 mb-3">
+                                            Haz clic y arrastra en la imagen para ajustar qué parte se mostrará en el resumen del proceso.
+                                        </p>
+                                        <div 
+                                            className="relative w-full h-48 rounded-md overflow-hidden border-2 border-gray-300 cursor-move bg-gray-200"
+                                            style={{
+                                                backgroundImage: `url(${flyerUrl})`,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: flyerPosition || 'center center',
+                                                backgroundRepeat: 'no-repeat'
+                                            }}
+                                            onMouseDown={handleFlyerEditorMouseDown}
+                                            onMouseMove={handleFlyerEditorMouseMove}
+                                            onMouseUp={handleFlyerEditorMouseUp}
+                                            onMouseLeave={handleFlyerEditorMouseUp}
+                                        >
+                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                <div className="bg-black/20 text-white text-xs px-2 py-1 rounded">
+                                                    Haz clic y arrastra para ajustar
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 flex items-center justify-between">
+                                            <div className="flex space-x-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleFlyerPositionChange(50, 50)}
+                                                    className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                                >
+                                                    Centrar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleFlyerPositionChange(50, 0)}
+                                                    className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                                >
+                                                    Arriba
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleFlyerPositionChange(50, 100)}
+                                                    className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                                >
+                                                    Abajo
+                                                </button>
+                                            </div>
+                                            <span className="text-xs text-gray-500">
+                                                Posición: {flyerPosition}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

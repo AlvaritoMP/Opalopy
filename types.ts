@@ -34,6 +34,7 @@ export interface Process {
     experienceLevel?: string;
     seniority?: string;
     flyerUrl?: string;
+    flyerPosition?: string; // Posición del background (ej: "50% 30%", "center top", etc.)
     attachments: Attachment[];
     serviceOrderCode?: string;
     startDate?: string;

@@ -16,6 +16,7 @@ function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any
         experienceLevel: dbProcess.experience_level,
         seniority: dbProcess.seniority,
         flyerUrl: dbProcess.flyer_url,
+        flyerPosition: dbProcess.flyer_position || undefined,
         attachments: attachments.map(att => ({
             id: att.id,
             name: att.name,
@@ -50,6 +51,7 @@ function processToDb(process: Partial<Process>): any {
     if (process.experienceLevel !== undefined) dbProcess.experience_level = process.experienceLevel;
     if (process.seniority !== undefined) dbProcess.seniority = process.seniority;
     if (process.flyerUrl !== undefined) dbProcess.flyer_url = process.flyerUrl;
+    if (process.flyerPosition !== undefined) dbProcess.flyer_position = process.flyerPosition;
     if (process.serviceOrderCode !== undefined) dbProcess.service_order_code = process.serviceOrderCode;
     if (process.startDate !== undefined) dbProcess.start_date = process.startDate && process.startDate.trim() !== '' ? process.startDate : null;
     if (process.endDate !== undefined) dbProcess.end_date = process.endDate && process.endDate.trim() !== '' ? process.endDate : null;

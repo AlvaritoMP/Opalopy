@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppState } from '../App';
-import { Plus, MoreVertical, Eye, Edit, Trash2, Users, RefreshCw } from 'lucide-react';
+import { Plus, MoreVertical, Eye, Edit, Trash2, Users, RefreshCw, Copy } from 'lucide-react';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { Process, UserRole, ProcessStatus } from '../types';
 
@@ -10,8 +10,9 @@ const ProcessCard: React.FC<{
     onView: () => void;
     onEdit: () => void;
     onDelete: () => void;
+    onDuplicate: () => void;
     canEdit: boolean;
-}> = ({ process, candidateCount, onView, onEdit, onDelete, canEdit }) => {
+}> = ({ process, candidateCount, onView, onEdit, onDelete, onDuplicate, canEdit }) => {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const { state } = useAppState();
 
@@ -30,8 +31,11 @@ const ProcessCard: React.FC<{
     return (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col group">
             <div 
-                className="h-40 bg-cover bg-center relative"
-                style={{ backgroundImage: `url(${process.flyerUrl || 'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800'})` }}
+                className="h-40 bg-cover relative"
+                style={{ 
+                    backgroundImage: `url(${process.flyerUrl || 'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800'})`,
+                    backgroundPosition: process.flyerPosition || 'center center'
+                }}
             >
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
                 {canEdit && (
@@ -60,6 +64,9 @@ const ProcessCard: React.FC<{
                                         </button>
                         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDropdownOpen(false); onEdit(); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                                             <Edit className="w-4 h-4 mr-3" /> Editar
+                                        </button>
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDropdownOpen(false); onDuplicate(); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                            <Copy className="w-4 h-4 mr-3" /> Duplicar
                                         </button>
                         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDropdownOpen(false); onDelete(); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                                             <Trash2 className="w-4 h-4 mr-3" /> Eliminar
@@ -160,6 +167,22 @@ export const ProcessList: React.FC = () => {
         setIsEditorOpen(true);
     };
 
+    const handleDuplicate = (processToDuplicate: Process) => {
+        // Crear una copia del proceso sin el ID y sin la carpeta de Google Drive
+        // El modal verifica si process tiene ID para decidir si crear o actualizar
+        // Al pasar un proceso sin ID válido, se tratará como nuevo proceso
+        const duplicatedProcess: Process = {
+            ...processToDuplicate,
+            id: `temp-duplicate-${Date.now()}`, // ID temporal que no existe en BD
+            title: `${processToDuplicate.title} (Copia)`, // Agregar "(Copia)" al título
+            googleDriveFolderId: undefined, // No copiar la carpeta de Google Drive
+            googleDriveFolderName: undefined, // No copiar el nombre de la carpeta
+            attachments: [], // No copiar attachments (se pueden subir nuevos)
+        };
+        setEditingProcess(duplicatedProcess);
+        setIsEditorOpen(true);
+    };
+
     const handleDelete = async (processId: string) => {
         if (window.confirm('¿Seguro que deseas eliminar este proceso y todos sus candidatos? Esta acción no se puede deshacer.')) {
             try {
@@ -233,6 +256,7 @@ export const ProcessList: React.FC = () => {
                         })()}
                         onView={() => actions.setView('process-view', process.id)}
                         onEdit={() => handleEdit(process)}
+                        onDuplicate={() => handleDuplicate(process)}
                         onDelete={() => handleDelete(process.id)}
                     />
                 ))}
