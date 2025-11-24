@@ -204,7 +204,7 @@ export const ProcessList: React.FC = () => {
     const filteredProcesses = state.processes.filter(process => statusFilter === 'all' ? true : (process.status || 'en_proceso') === statusFilter);
 
     return (
-        <div className="p-8">
+        <div className="p-8 overflow-y-auto h-full">
             <div className="flex justify-between items-center mb-8">
                 <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_processes', 'Procesos de contratación')}</h1>
                 <div className="flex items-center gap-3">
