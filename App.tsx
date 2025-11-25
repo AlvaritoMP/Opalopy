@@ -567,8 +567,8 @@ const App: React.FC = () => {
                 
                 if (isGoogleDriveConnected && googleDriveConfig && !folderId) {
                     try {
-                        actions.hideToast(loadingToastId);
-                        const folderToastId = actions.showToast('Creando carpeta en Google Drive...', 'loading', 0);
+                        hideToastHelper(loadingToastId);
+                        const folderToastId = showToastHelper('Creando carpeta en Google Drive...', 'loading', 0);
                         const { googleDriveService } = await import('./lib/googleDrive');
                         googleDriveService.initialize(googleDriveConfig);
                         
@@ -715,8 +715,8 @@ const App: React.FC = () => {
                 
                 if (isGoogleDriveConnected && googleDriveConfig && processHasFolder && !folderId) {
                     try {
-                        actions.hideToast(loadingToastId);
-                        const folderToastId = actions.showToast('Creando carpeta en Google Drive...', 'loading', 0);
+                        hideToastHelper(loadingToastId);
+                        const folderToastId = showToastHelper('Creando carpeta en Google Drive...', 'loading', 0);
                         const { googleDriveService } = await import('./lib/googleDrive');
                         googleDriveService.initialize(googleDriveConfig);
                         
@@ -1174,7 +1174,7 @@ const App: React.FC = () => {
                 <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
                     {renderView()}
                 </div>
-                <ToastContainer toasts={state.toasts || []} onClose={(id) => actions.hideToast(id)} />
+                <ToastContainer toasts={state.toasts || []} onClose={(id) => hideToastHelper(id)} />
             </div>
         </AppContext.Provider>
     );
