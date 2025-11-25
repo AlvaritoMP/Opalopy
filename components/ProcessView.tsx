@@ -123,22 +123,24 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                 alert(`No se pueden mover los siguientes candidatos porque faltan documentos requeridos:\n\n${names}\n\nDocumentos faltantes: ${missingDocsList}\n\nRevisa la pestaña "Documentos" en los detalles del candidato.`);
             }
             
-            candidatesToMove.forEach(candidate => {
+            // Mover candidatos uno por uno (no usar forEach con async/await)
+            for (const candidate of candidatesToMove) {
                 try {
                     await actions.updateCandidate({ ...candidate, stageId }, movedBy);
-                    // Recargar candidatos después de mover para asegurar sincronización
-                    if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
-                        try {
-                            await actions.reloadCandidates();
-                        } catch (reloadError) {
-                            console.warn('Error recargando candidatos después de mover (no crítico):', reloadError);
-                        }
-                    }
                 } catch (error) {
                     console.error('Error moviendo candidato:', error);
                     // El error ya fue manejado en updateCandidate
                 }
-            });
+            }
+            
+            // Recargar candidatos después de mover todos para asegurar sincronización
+            if (candidatesToMove.length > 0 && actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+                try {
+                    await actions.reloadCandidates();
+                } catch (reloadError) {
+                    console.warn('Error recargando candidatos después de mover (no crítico):', reloadError);
+                }
+            }
             
             setSelectedCandidates([]);
         } else {
