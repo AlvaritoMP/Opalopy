@@ -300,6 +300,38 @@ const Sidebar: React.FC = () => {
                     {canSeeSection('users') && <NavItem icon={UsersIcon} label={getLabel('sidebar_users', 'Usuarios')} view="users" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                     {canSeeSection('settings') && <NavItem icon={SettingsIcon} label={getLabel('sidebar_settings', 'Configuración')} view="settings" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 </div>
+                <div className="p-2 border-t">
+                    <button
+                        onClick={async () => {
+                            const refreshToastId = actions.showToast('Actualizando datos...', 'loading', 0);
+                            try {
+                                await Promise.all([
+                                    actions.reloadProcesses(),
+                                    actions.reloadCandidates()
+                                ]);
+                                actions.hideToast(refreshToastId);
+                                actions.showToast('Datos actualizados', 'success', 2000);
+                            } catch (error: any) {
+                                actions.hideToast(refreshToastId);
+                                const errorMessage = error?.message || '';
+                                const isQuotaError = errorMessage.includes('quota') || 
+                                                    errorMessage.includes('egress') || 
+                                                    errorMessage.includes('limit') ||
+                                                    errorMessage.includes('exceeded');
+                                if (isQuotaError) {
+                                    actions.showToast('⚠️ Límite de transferencia alcanzado. Intenta más tarde.', 'error', 5000);
+                                } else {
+                                    actions.showToast('Error al actualizar. Intenta nuevamente.', 'error', 3000);
+                                }
+                            }
+                        }}
+                        className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors text-gray-600 hover:bg-gray-100 ${isCollapsed ? 'justify-center' : ''}`}
+                        title="Actualizar datos"
+                    >
+                        <RefreshCw className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'}`} />
+                        {!isCollapsed && 'Actualizar'}
+                    </button>
+                </div>
                  <div className="p-2 border-t">
                     <div className="flex items-center">
                         <div className={`overflow-hidden transition-opacity duration-300 ${isCollapsed ? 'opacity-0 w-0' : 'opacity-100 flex-1'}`}>
