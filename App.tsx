@@ -735,6 +735,44 @@ const App: React.FC = () => {
                 }
             }
         },
+        reloadCandidates: async () => {
+            try {
+                const candidates = await candidatesApi.getAll();
+                setState(s => ({ ...s, candidates }));
+            } catch (error: any) {
+                console.error('Error reloading candidates:', error);
+                const errorMessage = error.message || '';
+                const errorCode = error.code || '';
+                
+                // Detectar errores de límite de egress/quota de Supabase
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded') ||
+                                    errorCode === 'PGRST301' ||
+                                    errorCode === 'PGRST302';
+                
+                if (isQuotaError) {
+                    showToastHelper(
+                        '⚠️ Límite de transferencia de Supabase alcanzado. Algunos cambios pueden no verse. Considera actualizar tu plan.',
+                        'error',
+                        10000
+                    );
+                } else {
+                    // Solo mostrar error si no es silencioso (errores de red, permisos, etc.)
+                    const isNetworkError = errorMessage.includes('network') || 
+                                         errorMessage.includes('timeout') ||
+                                         errorMessage.includes('fetch');
+                    if (isNetworkError) {
+                        showToastHelper(
+                            '⚠️ Problema de conexión. Los cambios pueden no verse en tiempo real.',
+                            'info',
+                            5000
+                        );
+                    }
+                }
+            }
+        },
         deleteProcess: async (processId) => {
             try {
                 // Obtener el proceso antes de eliminarlo para acceder a la carpeta de Google Drive
