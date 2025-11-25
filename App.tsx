@@ -627,7 +627,22 @@ const App: React.FC = () => {
             const loadingToastId = showToastHelper('Guardando cambios del proceso...', 'loading', 0);
             try {
                 const updated = await processesApi.update(processData.id, processData);
-                setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? updated : p) }));
+                
+                // Recargar el proceso completo desde la BD para asegurar que tiene todos los datos actualizados
+                // (stages, documentCategories, attachments, etc.)
+                try {
+                    const reloadedProcess = await processesApi.getById(processData.id);
+                    if (reloadedProcess) {
+                        setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? reloadedProcess : p) }));
+                    } else {
+                        // Si no se puede recargar, usar el actualizado
+                        setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? updated : p) }));
+                    }
+                } catch (reloadError) {
+                    console.warn('Error recargando proceso después de actualizar, usando el retornado:', reloadError);
+                    setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? updated : p) }));
+                }
+                
                 hideToastHelper(loadingToastId);
                 showToastHelper('Proceso actualizado exitosamente', 'success');
             } catch (error: any) {

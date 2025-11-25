@@ -351,8 +351,8 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
             } else {
                 await actions.addProcess(processData);
             }
-            // Recargar procesos después de guardar para que otros usuarios vean los cambios
-            // Si reloadProcesses falla, no mostrar error al usuario ya que el proceso ya se guardó
+            // Recargar procesos después de guardar para asegurar sincronización completa
+            // Esto asegura que las etapas, categorías y otros cambios se reflejen correctamente
             if (actions.reloadProcesses && typeof actions.reloadProcesses === 'function') {
                 try {
                     await actions.reloadProcesses();

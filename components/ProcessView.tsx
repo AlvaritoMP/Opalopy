@@ -124,7 +124,20 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
             }
             
             candidatesToMove.forEach(candidate => {
-                actions.updateCandidate({ ...candidate, stageId }, movedBy);
+                try {
+                    await actions.updateCandidate({ ...candidate, stageId }, movedBy);
+                    // Recargar candidatos después de mover para asegurar sincronización
+                    if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+                        try {
+                            await actions.reloadCandidates();
+                        } catch (reloadError) {
+                            console.warn('Error recargando candidatos después de mover (no crítico):', reloadError);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error moviendo candidato:', error);
+                    // El error ya fue manejado en updateCandidate
+                }
             });
             
             setSelectedCandidates([]);
@@ -138,7 +151,20 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                     e.currentTarget.classList.remove('bg-primary-50');
                     return;
                 }
-                actions.updateCandidate({ ...candidate, stageId }, movedBy);
+                try {
+                    await actions.updateCandidate({ ...candidate, stageId }, movedBy);
+                    // Recargar candidatos después de mover para asegurar sincronización
+                    if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+                        try {
+                            await actions.reloadCandidates();
+                        } catch (reloadError) {
+                            console.warn('Error recargando candidatos después de mover (no crítico):', reloadError);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error moviendo candidato:', error);
+                    // El error ya fue manejado en updateCandidate
+                }
             }
         }
         

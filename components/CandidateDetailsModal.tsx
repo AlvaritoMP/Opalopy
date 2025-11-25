@@ -109,6 +109,14 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
 
     const handleSaveChanges = async () => {
         await actions.updateCandidate(editableCandidate, state.currentUser?.name);
+        // Recargar candidatos después de actualizar para asegurar sincronización
+        if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+            try {
+                await actions.reloadCandidates();
+            } catch (reloadError) {
+                console.warn('Error recargando candidatos después de actualizar (no crítico):', reloadError);
+            }
+        }
         setIsEditing(false);
     };
     
