@@ -18,7 +18,7 @@ import { Spinner } from './components/Spinner';
 import { ArchivedCandidates } from './components/ArchivedCandidates';
 import { Letters } from './components/Letters';
 import { ToastContainer } from './components/Toast';
-import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw } from 'lucide-react';
 import { CandidateComparator } from './components/CandidateComparator';
 
 
@@ -45,6 +45,7 @@ interface AppActions {
     updateProcess: (processData: Process) => Promise<void>;
     deleteProcess: (processId: string) => Promise<void>;
     reloadProcesses: () => Promise<void>;
+    reloadCandidates: () => Promise<void>;
     addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<void>;
     updateCandidate: (candidateData: Candidate, movedBy?: string) => Promise<void>;
     deleteCandidate: (candidateId: string) => Promise<void>;
@@ -670,8 +671,36 @@ const App: React.FC = () => {
                 setState(s => ({ ...s, processes }));
             } catch (error: any) {
                 console.error('Error reloading processes:', error);
-                // No lanzar error, solo loguear para no interrumpir el flujo
-                // El error puede ser por permisos o problemas de conexión
+                const errorMessage = error.message || '';
+                const errorCode = error.code || '';
+                
+                // Detectar errores de límite de egress/quota de Supabase
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded') ||
+                                    errorCode === 'PGRST301' ||
+                                    errorCode === 'PGRST302';
+                
+                if (isQuotaError) {
+                    showToastHelper(
+                        '⚠️ Límite de transferencia de Supabase alcanzado. Algunos cambios pueden no verse. Considera actualizar tu plan.',
+                        'error',
+                        10000
+                    );
+                } else {
+                    // Solo mostrar error si no es silencioso (errores de red, permisos, etc.)
+                    const isNetworkError = errorMessage.includes('network') || 
+                                         errorMessage.includes('timeout') ||
+                                         errorMessage.includes('fetch');
+                    if (isNetworkError) {
+                        showToastHelper(
+                            '⚠️ Problema de conexión. Los cambios pueden no verse en tiempo real.',
+                            'info',
+                            5000
+                        );
+                    }
+                }
             }
         },
         deleteProcess: async (processId) => {
@@ -1112,15 +1141,22 @@ const App: React.FC = () => {
         },
     }), [state.currentUser, state.users]);
 
-    // Sincronización automática periódica (cada 30 segundos cuando la app está activa)
+    // Sincronización automática periódica (cada 2 minutos cuando la app está activa)
+    // Reducida de 30s a 2min para reducir consumo de egress
     // Debe estar después de la definición de actions
     useEffect(() => {
         if (!state.currentUser) return;
         
+        let syncPaused = false;
+        
         const syncInterval = setInterval(async () => {
+            // Si la sincronización está pausada por quota, no intentar
+            if (syncPaused) return;
+            
             try {
                 // Solo recargar si la app está visible (no en background)
                 if (document.visibilityState === 'visible') {
+                    // Recargar procesos y candidatos
                     if (actions.reloadProcesses && typeof actions.reloadProcesses === 'function') {
                         await actions.reloadProcesses();
                     }
@@ -1128,10 +1164,36 @@ const App: React.FC = () => {
                         await actions.reloadCandidates();
                     }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.warn('Error en sincronización automática (no crítico):', error);
+                const errorMessage = error?.message || '';
+                const errorCode = error?.code || '';
+                
+                // Detectar errores de límite de egress/quota de Supabase
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded') ||
+                                    errorCode === 'PGRST301' ||
+                                    errorCode === 'PGRST302';
+                
+                if (isQuotaError) {
+                    syncPaused = true; // Pausar sincronización automática
+                    
+                    // Mostrar solo una vez cada 5 minutos para no saturar al usuario
+                    const lastQuotaWarning = localStorage.getItem('lastQuotaWarning');
+                    const now = Date.now();
+                    if (!lastQuotaWarning || (now - parseInt(lastQuotaWarning)) > 300000) {
+                        showToastHelper(
+                            '⚠️ Límite de transferencia de Supabase alcanzado. La sincronización automática está pausada. Usa el botón "Actualizar" para ver cambios.',
+                            'error',
+                            15000
+                        );
+                        localStorage.setItem('lastQuotaWarning', now.toString());
+                    }
+                }
             }
-        }, 30000); // 30 segundos
+        }, 120000); // 2 minutos (reducido de 30s para ahorrar egress)
         
         return () => clearInterval(syncInterval);
     }, [state.currentUser, actions]);
