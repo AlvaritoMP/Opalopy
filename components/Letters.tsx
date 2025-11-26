@@ -190,7 +190,20 @@ const autoFillCandidateData = (
         'Fecha de Contratación': candidate.hireDate || '',
         'fecha de contratación': candidate.hireDate || '',
         
+        // Salario acordado (monto numérico)
+        'agreedSalary': candidate.agreedSalary || '',
+        'AgreedSalary': candidate.agreedSalary || '',
+        'agreed_salary': candidate.agreedSalary || '',
+        'SalarioAcordado': candidate.agreedSalary || '',
+        'salarioAcordado': candidate.agreedSalary || '',
+        'salarioacordado': candidate.agreedSalary || '',
+        'Salario acordado': candidate.agreedSalary || '',
+        'salario acordado': candidate.agreedSalary || '',
+        'SALARIO ACORDADO': candidate.agreedSalary || '',
+        
         // Salario acordado en letras
+        'agreedSalaryInWords': candidate.agreedSalaryInWords || '',
+        'AgreedSalaryInWords': candidate.agreedSalaryInWords || '',
         'Salarioacordadoletras': candidate.agreedSalaryInWords || '',
         'salarioAcordadoLetras': candidate.agreedSalaryInWords || '',
         'salarioacordadoletras': candidate.agreedSalaryInWords || '',
@@ -199,6 +212,7 @@ const autoFillCandidateData = (
         'salarioAcordadoEnLetras': candidate.agreedSalaryInWords || '',
         'Salario en letras': candidate.agreedSalaryInWords || '',
         'salario en letras': candidate.agreedSalaryInWords || '',
+        'SALARIO EN LETRAS': candidate.agreedSalaryInWords || '',
         
         // Proceso/Posición
         'positionTitle': process?.title || '',
@@ -249,12 +263,37 @@ const autoFillCandidateData = (
         }
         
         // Buscar coincidencia sin importar mayúsculas/minúsculas
-        const keyLower = key.toLowerCase();
+        const keyLower = key.toLowerCase().replace(/[_\s-]/g, ''); // Normalizar: quitar espacios, guiones, guiones bajos
         for (const [mappedKey, value] of Object.entries(fieldMappings)) {
-            if (mappedKey.toLowerCase() === keyLower) {
+            const mappedKeyLower = mappedKey.toLowerCase().replace(/[_\s-]/g, '');
+            if (mappedKeyLower === keyLower) {
                 data[key] = value;
                 return;
             }
+        }
+        
+        // Búsqueda flexible para campos de salario (buscar palabras clave)
+        const keyNormalized = key.toLowerCase().replace(/[_\s-]/g, '');
+        if (keyNormalized.includes('salario') && keyNormalized.includes('acordado')) {
+            if (keyNormalized.includes('letras') || keyNormalized.includes('letra')) {
+                // Es salario acordado en letras
+                if (candidate.agreedSalaryInWords) {
+                    data[key] = candidate.agreedSalaryInWords;
+                    return;
+                }
+            } else {
+                // Es salario acordado (monto)
+                if (candidate.agreedSalary) {
+                    data[key] = candidate.agreedSalary;
+                    return;
+                }
+            }
+        }
+        
+        // Búsqueda flexible para fecha de emisión
+        if (keyNormalized.includes('fecha') && (keyNormalized.includes('emision') || keyNormalized.includes('emisión'))) {
+            data[key] = obtenerFechaEmision();
+            return;
         }
         
         // Si no hay coincidencia, dejar vacío (el usuario puede completarlo)
@@ -291,6 +330,13 @@ export const Letters: React.FC = () => {
     useEffect(() => {
         if (selectedCandidate && uploadedBuffer && detectedKeys.length > 0) {
             const autoFilled = autoFillCandidateData(selectedCandidate, selectedProcess, companyName, detectedKeys);
+            // Asegurar que la fecha de emisión esté siempre presente si se solicita
+            detectedKeys.forEach(key => {
+                const keyLower = key.toLowerCase();
+                if (keyLower.includes('fechaemision') || keyLower.includes('fecha emisión') || keyLower.includes('fecha_emision')) {
+                    autoFilled[key] = obtenerFechaEmision();
+                }
+            });
             setDocxData(autoFilled);
         }
     }, [selectedCandidate, uploadedBuffer, detectedKeys, selectedProcess, companyName]);
@@ -322,8 +368,34 @@ export const Letters: React.FC = () => {
             return errors;
         }
 
+        // Función para determinar si un campo es opcional (puede estar vacío sin error)
+        const isOptionalField = (fieldKey: string): boolean => {
+            const normalizedKey = fieldKey.toLowerCase().replace(/[_\s-]/g, '');
+            // Campos relacionados con salario acordado (si el candidato no lo tiene, es opcional)
+            if (normalizedKey.includes('salario') && normalizedKey.includes('acordado')) {
+                if (normalizedKey.includes('letras') || normalizedKey.includes('letra')) {
+                    // Salario en letras es opcional si el candidato no tiene salario acordado
+                    return !selectedCandidate?.agreedSalary;
+                } else {
+                    // Salario acordado (monto) es opcional
+                    return !selectedCandidate?.agreedSalary;
+                }
+            }
+            // Fecha de emisión siempre se genera automáticamente, no requiere validación
+            if (normalizedKey.includes('fecha') && (normalizedKey.includes('emision') || normalizedKey.includes('emisión'))) {
+                return true; // No marcar como error porque se genera automáticamente
+            }
+            return false;
+        };
+
         detectedKeys.forEach(key => {
             const value = docxData[key];
+            
+            // Si es un campo opcional y está vacío, no marcar como error
+            if (isOptionalField(key)) {
+                return;
+            }
+            
             if (!value || value.trim() === '') {
                 errors.push({
                     field: key,
@@ -617,8 +689,16 @@ export const Letters: React.FC = () => {
                                 <div><strong>Empresa:</strong> {'{{Empresa}}'}, {'{{empresa}}'}, {'{{companyName}}'}, {'{{Company}}'}</div>
                                 <div><strong>Fecha actual:</strong> {'{{Fecha}}'}, {'{{fecha}}'}, {'{{fechaActual}}'}, {'{{Today}}'}, {'{{Hoy}}'}</div>
                                 <div><strong>Fecha de contratación:</strong> {'{{FechaContratacion}}'}, {'{{hireDate}}'}, {'{{Fecha de Contratación}}'}</div>
-                                <div><strong>Salario acordado en letras:</strong> {'{{Salarioacordadoletras}}'}, {'{{SalarioAcordadoLetras}}'}, {'{{salarioAcordadoLetras}}'}</div>
+                                <div><strong>Salario acordado (monto):</strong> {'{{SalarioAcordado}}'}, {'{{salarioAcordado}}'}, {'{{agreedSalary}}'}, {'{{Salario acordado}}'} <span className="text-gray-500 text-xs">(ej: "S/2,500")</span></div>
+                                <div><strong>Salario acordado en letras:</strong> {'{{Salarioacordadoletras}}'}, {'{{SalarioAcordadoLetras}}'}, {'{{salarioAcordadoLetras}}'}, {'{{Salario en letras}}'} <span className="text-gray-500 text-xs">(ej: "Dos mil quinientos y 00/100 soles")</span></div>
                                 <div><strong>Fecha de emisión:</strong> {'{{Fechaemision}}'}, {'{{FechaEmision}}'}, {'{{fechaEmision}}'} <span className="text-blue-600">(se genera automáticamente: formato "26 de Noviembre de 2025")</span></div>
+                            </div>
+                            <div className="bg-yellow-50 border border-yellow-300 rounded p-3 mt-2">
+                                <p className="text-xs text-yellow-800">
+                                    <strong>📝 Nota sobre salarios:</strong> El salario acordado se toma del campo "Salario Acordado" en los detalles del candidato. 
+                                    El salario en letras se genera automáticamente cuando se guarda o actualiza el salario acordado. 
+                                    Si no ves estos valores, asegúrate de que el candidato tenga el salario acordado configurado en sus detalles.
+                                </p>
                             </div>
                             <div className="bg-green-50 border border-green-300 rounded p-3 mt-2">
                                 <p className="text-sm text-green-800">
