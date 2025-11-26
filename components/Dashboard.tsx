@@ -9,26 +9,26 @@ const StatCard: React.FC<{
     value: number | string;
     color: string;
 }> = ({ icon: Icon, title, value, color }) => (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center">
-        <div className={`p-3 rounded-full mr-4 ${color}`}>
-            <Icon className="w-6 h-6 text-white" />
+    <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm flex items-center">
+        <div className={`p-2 md:p-3 rounded-full mr-3 md:mr-4 flex-shrink-0 ${color}`}>
+            <Icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
         </div>
-        <div>
-            <p className="text-sm text-gray-500">{title}</p>
-            <p className="text-2xl font-bold text-gray-800">{value}</p>
+        <div className="min-w-0">
+            <p className="text-xs md:text-sm text-gray-500 truncate">{title}</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-800">{value}</p>
         </div>
     </div>
 );
 
 const ChartContainer: React.FC<{title: string, children: React.ReactNode, hasData: boolean, className?: string}> = ({title, children, hasData, className=""}) => (
-    <div className={`bg-white p-6 rounded-xl border border-gray-200 shadow-sm ${className}`}>
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">{title}</h2>
+    <div className={`bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm ${className}`}>
+        <h2 className="text-lg md:text-xl font-semibold text-gray-800 mb-3 md:mb-4">{title}</h2>
         {hasData ? (
             <ResponsiveContainer width="100%" height={250}>
                 {children}
             </ResponsiveContainer>
         ) : (
-             <div className="flex items-center justify-center h-[250px] text-gray-500">Sin datos para los filtros seleccionados.</div>
+             <div className="flex items-center justify-center h-[250px] text-gray-500 text-sm md:text-base">Sin datos para los filtros seleccionados.</div>
         )}
     </div>
 );
@@ -246,13 +246,13 @@ export const Dashboard: React.FC = () => {
 
 
     return (
-        <div className="p-8 bg-gray-50/50 min-h-full overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Panel')}</h1>
+        <div className="p-4 md:p-8 bg-gray-50/50 min-h-full overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 md:mb-6">
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-800">{getLabel('sidebar_dashboard', 'Panel')}</h1>
             </div>
             
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-8 flex items-center space-x-4">
+            <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-200 shadow-sm mb-6 md:mb-8 flex flex-col md:flex-row md:items-center gap-3 md:gap-4 md:space-x-4">
                 <div>
                     <label htmlFor="processFilter" className="text-sm font-medium text-gray-700">Filtrar por proceso:</label>
                     <select 

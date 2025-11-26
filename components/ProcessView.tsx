@@ -207,8 +207,8 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     };
 
     const InfoChip: React.FC<{icon: React.ElementType, text: string}> = ({ icon: Icon, text }) => (
-        <div className="flex items-center bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
-            <Icon className="w-4 h-4 mr-1.5" /> {text}
+        <div className="flex items-center bg-gray-100 text-gray-700 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm">
+            <Icon className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-1.5 flex-shrink-0" /> <span className="truncate max-w-[150px] md:max-w-none">{text}</span>
         </div>
     );
 
@@ -217,9 +217,9 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
 
     return (
         <div className="flex flex-col h-full">
-            <header className="p-4 border-b bg-white flex-shrink-0">
-                <div className="flex justify-between items-center mb-3">
-                     <div className="flex items-center space-x-3">
+            <header className="p-3 md:p-4 border-b bg-white flex-shrink-0">
+                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-3">
+                     <div className="flex items-center space-x-2 md:space-x-3 flex-wrap">
                         <button
                             onClick={() => actions.setView('processes', null)}
                             className="flex items-center justify-center p-2 rounded-md hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors"
@@ -227,31 +227,31 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
-                        <h1 className="text-2xl font-bold text-gray-800">{process.title}</h1>
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[currentStatus]}`}>
+                        <h1 className="text-xl md:text-2xl font-bold text-gray-800 break-words">{process.title}</h1>
+                        <span className={`px-2 md:px-3 py-1 rounded-full text-xs font-semibold ${statusColors[currentStatus]} whitespace-nowrap`}>
                             {statusLabels[currentStatus]}
                         </span>
                      </div>
                      {canManageProcess && (
-                        <div className="flex items-center space-x-3">
+                        <div className="flex flex-wrap items-center gap-2 md:gap-3">
                             {selectedCandidates.length > 0 && (
-                                <button onClick={() => setIsBulkLetterOpen(true)} className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
-                                    <FileText className="w-4 h-4 mr-2"/> Emitir cartas ({selectedCandidates.length})
+                                <button onClick={() => setIsBulkLetterOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+                                    <FileText className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden sm:inline">Emitir cartas</span> <span className="sm:hidden">Cartas</span> ({selectedCandidates.length})
                                 </button>
                             )}
-                            <button onClick={() => setIsAttachmentsModalOpen(true)} className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" disabled={!process.attachments?.length}>
-                            <Paperclip className="w-4 h-4 mr-2"/> Ver documentos ({process.attachments?.length || 0})
+                            <button onClick={() => setIsAttachmentsModalOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap" disabled={!process.attachments?.length}>
+                            <Paperclip className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden sm:inline">Ver documentos</span> ({process.attachments?.length || 0})
                             </button>
-                            <button onClick={() => setIsProcessEditorOpen(true)} className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
-                                <Edit className="w-4 h-4 mr-2"/> Editar proceso
+                            <button onClick={() => setIsProcessEditorOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+                                <Edit className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden md:inline">Editar proceso</span> <span className="md:hidden">Editar</span>
                             </button>
-                            <button onClick={() => setIsAddCandidateOpen(true)} className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700">
-                                <Plus className="w-5 h-5 mr-2" /> Añadir candidato
+                            <button onClick={() => setIsAddCandidateOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700 whitespace-nowrap">
+                                <Plus className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2" /> <span className="hidden md:inline">Añadir candidato</span> <span className="md:hidden">Añadir</span>
                             </button>
                         </div>
                      )}
                 </div>
-                <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                <div className="flex items-center flex-wrap gap-2 md:gap-3">
                     {process.serviceOrderCode && <InfoChip icon={ClipboardList} text={`OS: ${process.serviceOrderCode}`} />}
                     {process.seniority && <InfoChip icon={Briefcase} text={process.seniority} />}
                     {process.salaryRange && <InfoChip icon={DollarSign} text={`${state.settings?.currencySymbol || ''}${process.salaryRange.replace(/[$\€£S/]/g, '').trim()}`} />}
@@ -260,18 +260,18 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                     <InfoChip icon={Users} text={`Vacantes: ${totalVacancies}`} />
                 </div>
             </header>
-            <main className="flex-1 flex overflow-x-auto p-4 bg-gray-50/50 space-x-4">
+            <main className="flex-1 flex overflow-x-auto p-2 md:p-4 bg-gray-50/50 space-x-2 md:space-x-4 pb-4">
                 {process.stages.map(stage => (
                     <div
                         key={stage.id}
                         onDrop={(e) => handleDrop(e, stage.id)}
                         onDragOver={handleDragOver}
                         onDragLeave={handleDragLeave}
-                        className="flex-shrink-0 w-80 bg-gray-100 rounded-lg p-3 transition-colors"
+                        className="flex-shrink-0 w-[280px] md:w-80 bg-gray-100 rounded-lg p-2 md:p-3 transition-colors"
                     >
-                        <h3 className="font-semibold text-gray-700 mb-3 px-1 flex justify-between">
-                            <span>{stage.name}</span>
-                            <span>({candidates.filter(c => c.stageId === stage.id).length})</span>
+                        <h3 className="font-semibold text-sm md:text-base text-gray-700 mb-2 md:mb-3 px-1 flex justify-between">
+                            <span className="truncate mr-2">{stage.name}</span>
+                            <span className="flex-shrink-0">({candidates.filter(c => c.stageId === stage.id).length})</span>
                         </h3>
                         <div className="space-y-3 min-h-[50px]">
                             {candidates

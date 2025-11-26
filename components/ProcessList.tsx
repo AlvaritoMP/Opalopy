@@ -280,33 +280,33 @@ export const ProcessList: React.FC = () => {
     }, [state.processes, statusFilter, searchQuery]);
 
     return (
-        <div className="p-8 overflow-y-auto h-full">
-            <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">{getLabel('sidebar_processes', 'Procesos de contratación')}</h1>
-                <div className="flex items-center gap-3">
+        <div className="p-4 md:p-8 overflow-y-auto h-full">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 md:mb-8">
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-800">{getLabel('sidebar_processes', 'Procesos de contratación')}</h1>
+                <div className="flex items-center gap-2 md:gap-3">
                     <button
                         onClick={handleReload}
                         disabled={isReloading}
-                        className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg shadow-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center px-3 md:px-4 py-2 bg-gray-100 text-gray-700 rounded-lg shadow-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                         title="Recargar procesos"
                     >
-                        <RefreshCw className={`w-5 h-5 mr-2 ${isReloading ? 'animate-spin' : ''}`} /> 
-                        {isReloading ? 'Recargando...' : 'Recargar'}
+                        <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 md:mr-2 ${isReloading ? 'animate-spin' : ''}`} /> 
+                        <span className="hidden sm:inline">{isReloading ? 'Recargando...' : 'Recargar'}</span>
                     </button>
                     {canManageProcesses && (
                         <button
                             onClick={handleAddNew}
-                            className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"
+                            className="flex items-center px-3 md:px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700 text-sm md:text-base whitespace-nowrap"
                         >
-                            <Plus className="w-5 h-5 mr-2" /> Nuevo proceso
+                            <Plus className="w-4 h-4 md:w-5 md:h-5 md:mr-2" /> <span className="hidden sm:inline">Nuevo proceso</span> <span className="sm:hidden">Nuevo</span>
                         </button>
                     )}
                 </div>
             </div>
 
             {/* Barra de búsqueda */}
-            <div className="mb-6">
-                <div className="relative max-w-md">
+            <div className="mb-4 md:mb-6">
+                <div className="relative max-w-full md:max-w-md">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
                         type="text"

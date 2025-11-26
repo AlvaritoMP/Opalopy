@@ -608,9 +608,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
 
     return (
         <>
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[1400px] flex flex-col max-h-[92vh]">
-                <header className="p-4 border-b flex justify-between items-center flex-shrink-0">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-0 md:p-4">
+            <div className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full h-full md:h-auto max-w-[1400px] flex flex-col max-h-screen md:max-h-[92vh]">
+                <header className="p-3 md:p-4 border-b flex flex-col md:flex-row md:justify-between md:items-center gap-3 flex-shrink-0">
                     <div className="flex items-center space-x-4">
                         <div className="relative group">
                              {currentCandidate.avatarUrl ? (
@@ -626,59 +626,60 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             <input type="file" accept="image/*" ref={avatarInputRef} onChange={handleAvatarUpload} className="hidden" />
                         </div>
                         <div>
-                            <div className="flex items-center space-x-3">
-                                <h2 className="text-2xl font-bold text-gray-800">{currentCandidate.name}</h2>
+                            <div className="flex items-center space-x-2 md:space-x-3 flex-wrap">
+                                <h2 className="text-xl md:text-2xl font-bold text-gray-800 break-words">{currentCandidate.name}</h2>
                                 {isArchived && (
-                                    <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold">
+                                    <span className="px-2 md:px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold whitespace-nowrap">
                                         Archivado
                                     </span>
                                 )}
                             </div>
-                    <p className="text-sm text-gray-500">Postulado a: {process.title}</p>
+                    <p className="text-xs md:text-sm text-gray-500 truncate">Postulado a: {process.title}</p>
                         </div>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             onClick={handleExportZip}
                             disabled={isExporting}
-                            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            className="flex items-center px-2 md:px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                         >
-                            <Download className="w-4 h-4 mr-2" />
-                            {isExporting ? 'Exportando...' : 'Exportar ZIP'}
+                            <Download className="w-4 h-4 md:mr-2" />
+                            <span className="hidden sm:inline">{isExporting ? 'Exportando...' : 'Exportar ZIP'}</span>
+                            <span className="sm:hidden">ZIP</span>
                         </button>
                         {canEdit && (
                             <>
                                 <button
                                     onClick={handleArchiveToggle}
-                                    className={`flex items-center px-3 py-1.5 border rounded-md text-sm font-medium ${isArchived ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
+                                    className={`flex items-center px-2 md:px-3 py-1.5 border rounded-md text-xs md:text-sm font-medium ${isArchived ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
                                 >
-                                    {isArchived ? <Undo2 className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
-                                    {isArchived ? 'Restaurar' : 'Archivar'}
+                                    {isArchived ? <Undo2 className="w-4 h-4 md:mr-2" /> : <Archive className="w-4 h-4 md:mr-2" />}
+                                    <span className="hidden sm:inline">{isArchived ? 'Restaurar' : 'Archivar'}</span>
                                 </button>
                                 <button
                                     onClick={handleDeleteCandidate}
-                                    className="flex items-center px-3 py-1.5 bg-red-600 text-white border border-red-600 rounded-md text-sm font-medium hover:bg-red-700"
+                                    className="flex items-center px-2 md:px-3 py-1.5 bg-red-600 text-white border border-red-600 rounded-md text-xs md:text-sm font-medium hover:bg-red-700"
                                 >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Eliminar
+                                    <Trash2 className="w-4 h-4 md:mr-2" />
+                                    <span className="hidden sm:inline">Eliminar</span>
                                 </button>
                             </>
                         )}
                         {canEdit && !isEditing && (
                             <>
-                        <button onClick={() => setIsChangeProcessModalOpen(true)} className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50" title="Mover o duplicar candidato">
+                        <button onClick={() => setIsChangeProcessModalOpen(true)} className="flex items-center px-2 md:px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50" title="Mover o duplicar candidato">
                                     <ArrowRightLeft className="w-4 h-4" />
                                 </button>
-                                <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
-                            <Edit className="w-4 h-4 mr-2" /> Editar
+                                <button onClick={() => setIsEditing(true)} className="flex items-center px-2 md:px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50">
+                            <Edit className="w-4 h-4 md:mr-2" /> <span className="hidden sm:inline">Editar</span>
                                 </button>
                             </>
                         )}
-                        <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X /></button>
+                        <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 flex-shrink-0"><X className="w-5 h-5" /></button>
                     </div>
                 </header>
                  <div className="border-b flex-shrink-0">
-                    <nav className="flex space-x-4 px-6">
+                    <nav className="flex space-x-2 md:space-x-4 px-3 md:px-6 overflow-x-auto scrollbar-hide">
                 <TabButton tabId="details">Detalles</TabButton>
                 <TabButton tabId="history">Historial</TabButton>
                 <TabButton tabId="schedule">Agenda</TabButton>
@@ -695,7 +696,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 </div>
                 <main className="flex-1 overflow-y-auto">
                    {activeTab === 'details' && (
-                        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[0.8fr_1.8fr] gap-6">
+                        <div className="p-3 md:p-6 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[0.8fr_1.8fr] gap-4 md:gap-6">
                             {/* Left Column - Details */}
                             <div className="space-y-6">
                                 {isEditing ? (

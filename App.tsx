@@ -18,7 +18,7 @@ import { Spinner } from './components/Spinner';
 import { ArchivedCandidates } from './components/ArchivedCandidates';
 import { Letters } from './components/Letters';
 import { ToastContainer } from './components/Toast';
-import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw, Menu } from 'lucide-react';
 import { CandidateComparator } from './components/CandidateComparator';
 
 
@@ -266,6 +266,7 @@ const NavItem: React.FC<{
 const Sidebar: React.FC = () => {
     const { state, actions, getLabel } = useAppState();
     const [isCollapsed, setIsCollapsed] = React.useState(false);
+    const [isMobileOpen, setIsMobileOpen] = React.useState(false);
     
     if (!state.currentUser) return null;
     
@@ -273,7 +274,53 @@ const Sidebar: React.FC = () => {
     const canSeeSection = (section: Section) => visibleSections.includes(section);
 
     return (
-        <div className={`flex flex-col bg-white border-r transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+        <>
+            {/* Botón hamburguesa para móvil */}
+            <button
+                onClick={() => setIsMobileOpen(true)}
+                className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50"
+                aria-label="Abrir menú"
+            >
+                <Menu className="w-6 h-6 text-gray-700" />
+            </button>
+            
+            {/* Overlay para móvil */}
+            {isMobileOpen && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+                    onClick={() => setIsMobileOpen(false)}
+                />
+            )}
+            
+            {/* Sidebar */}
+            <div className={`fixed md:static inset-y-0 left-0 z-40 flex flex-col bg-white border-r transition-all duration-300 ${
+                isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+            } ${isCollapsed ? 'w-20' : 'w-64'}`}>
+                <div className={`flex items-center border-b p-4 h-16 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+                    {!isCollapsed && (
+                         <div className="flex items-center overflow-hidden">
+                            {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-8 mr-2 object-contain" />}
+                            <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'ATS Pro'}</span>
+                        </div>
+                    )}
+                    <button 
+                        onClick={() => {
+                            setIsCollapsed(!isCollapsed);
+                            if (isMobileOpen) setIsMobileOpen(false);
+                        }} 
+                        className="p-2 rounded-md hover:bg-gray-100 flex-shrink-0"
+                    >
+                        {isCollapsed ? <ChevronsRight className="w-5 h-5 text-gray-600" /> : <ChevronsLeft className="w-5 h-5 text-gray-600" />}
+                    </button>
+                    {/* Botón cerrar para móvil */}
+                    <button
+                        onClick={() => setIsMobileOpen(false)}
+                        className="md:hidden p-2 rounded-md hover:bg-gray-100 ml-2"
+                        aria-label="Cerrar menú"
+                    >
+                        <X className="w-5 h-5 text-gray-600" />
+                    </button>
+                </div>
             <div className={`flex items-center border-b p-4 h-16 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                 {!isCollapsed && (
                      <div className="flex items-center overflow-hidden">
@@ -351,6 +398,7 @@ const Sidebar: React.FC = () => {
                 </div>
             </div>
         </div>
+        </>
     );
 };
 
@@ -1344,7 +1392,7 @@ const App: React.FC = () => {
         <AppContext.Provider value={appContextValue}>
             <div className="flex h-screen bg-gray-50 font-sans text-gray-900">
                 <Sidebar />
-                <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
+                <div className="flex-1 flex flex-col overflow-y-auto min-h-0 pt-16 md:pt-0">
                     {renderView()}
                 </div>
                 <ToastContainer toasts={state.toasts || []} onClose={(id) => hideToastHelper(id)} />
