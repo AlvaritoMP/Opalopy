@@ -86,10 +86,13 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         })),
         source: dbCandidate.source,
         salaryExpectation: dbCandidate.salary_expectation,
+        agreedSalary: dbCandidate.agreed_salary,
         age: dbCandidate.age,
         dni: dbCandidate.dni,
         linkedinUrl: dbCandidate.linkedin_url,
         address: dbCandidate.address,
+        province: dbCandidate.province,
+        district: dbCandidate.district,
         postIts: (postIts || []).map(p => ({
             id: p.id,
             text: p.text,
@@ -122,10 +125,13 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.avatarUrl !== undefined) dbCandidate.avatar_url = candidate.avatarUrl;
     if (candidate.source !== undefined) dbCandidate.source = candidate.source;
     if (candidate.salaryExpectation !== undefined) dbCandidate.salary_expectation = candidate.salaryExpectation;
+    if (candidate.agreedSalary !== undefined) dbCandidate.agreed_salary = candidate.agreedSalary;
     if (candidate.age !== undefined) dbCandidate.age = candidate.age;
     if (candidate.dni !== undefined) dbCandidate.dni = candidate.dni;
     if (candidate.linkedinUrl !== undefined) dbCandidate.linkedin_url = candidate.linkedinUrl;
     if (candidate.address !== undefined) dbCandidate.address = candidate.address;
+    if (candidate.province !== undefined) dbCandidate.province = candidate.province;
+    if (candidate.district !== undefined) dbCandidate.district = candidate.district;
     if (candidate.archived !== undefined) dbCandidate.archived = candidate.archived;
     if (candidate.archivedAt !== undefined) dbCandidate.archived_at = candidate.archivedAt;
     if (candidate.hireDate !== undefined) dbCandidate.hire_date = candidate.hireDate;
