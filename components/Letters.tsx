@@ -5,6 +5,7 @@ import { FileText, Download, Upload, AlertCircle, CheckCircle, HelpCircle, Info,
 import { saveAs } from 'file-saver';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import { obtenerFechaEmision } from '../lib/dateFormatter';
 
 // Función para convertir Blob a DataURL (base64)
 const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
@@ -189,6 +190,16 @@ const autoFillCandidateData = (
         'Fecha de Contratación': candidate.hireDate || '',
         'fecha de contratación': candidate.hireDate || '',
         
+        // Salario acordado en letras
+        'Salarioacordadoletras': candidate.agreedSalaryInWords || '',
+        'salarioAcordadoLetras': candidate.agreedSalaryInWords || '',
+        'salarioacordadoletras': candidate.agreedSalaryInWords || '',
+        'SalarioAcordadoLetras': candidate.agreedSalaryInWords || '',
+        'SalarioAcordadoEnLetras': candidate.agreedSalaryInWords || '',
+        'salarioAcordadoEnLetras': candidate.agreedSalaryInWords || '',
+        'Salario en letras': candidate.agreedSalaryInWords || '',
+        'salario en letras': candidate.agreedSalaryInWords || '',
+        
         // Proceso/Posición
         'positionTitle': process?.title || '',
         'Puesto': process?.title || '',
@@ -219,6 +230,14 @@ const autoFillCandidateData = (
         'Today': new Date().toLocaleDateString('es-ES'),
         'hoy': new Date().toLocaleDateString('es-ES'),
         'Hoy': new Date().toLocaleDateString('es-ES'),
+        
+        // Fecha de emisión (formato peruano: "26 de Noviembre de 2025")
+        'Fechaemision': obtenerFechaEmision(),
+        'fechaEmision': obtenerFechaEmision(),
+        'FechaEmision': obtenerFechaEmision(),
+        'fechaemision': obtenerFechaEmision(),
+        'Fecha de Emisión': obtenerFechaEmision(),
+        'fecha de emisión': obtenerFechaEmision(),
     };
 
     // Autocompletar todos los campos detectados
@@ -342,7 +361,19 @@ export const Letters: React.FC = () => {
                 }
             });
             
-            doc.setData(docxData);
+            // Agregar fecha de emisión actualizada justo antes de generar la carta
+            const fechaEmisionActual = obtenerFechaEmision();
+            const dataConFechaEmision = {
+                ...docxData,
+                Fechaemision: fechaEmisionActual,
+                fechaEmision: fechaEmisionActual,
+                FechaEmision: fechaEmisionActual,
+                fechaemision: fechaEmisionActual,
+                'Fecha de Emisión': fechaEmisionActual,
+                'fecha de emisión': fechaEmisionActual,
+            };
+            
+            doc.setData(dataConFechaEmision);
             doc.render();
             
             const out = doc.getZip().generate({
@@ -586,6 +617,8 @@ export const Letters: React.FC = () => {
                                 <div><strong>Empresa:</strong> {'{{Empresa}}'}, {'{{empresa}}'}, {'{{companyName}}'}, {'{{Company}}'}</div>
                                 <div><strong>Fecha actual:</strong> {'{{Fecha}}'}, {'{{fecha}}'}, {'{{fechaActual}}'}, {'{{Today}}'}, {'{{Hoy}}'}</div>
                                 <div><strong>Fecha de contratación:</strong> {'{{FechaContratacion}}'}, {'{{hireDate}}'}, {'{{Fecha de Contratación}}'}</div>
+                                <div><strong>Salario acordado en letras:</strong> {'{{Salarioacordadoletras}}'}, {'{{SalarioAcordadoLetras}}'}, {'{{salarioAcordadoLetras}}'}</div>
+                                <div><strong>Fecha de emisión:</strong> {'{{Fechaemision}}'}, {'{{FechaEmision}}'}, {'{{fechaEmision}}'} <span className="text-blue-600">(se genera automáticamente: formato "26 de Noviembre de 2025")</span></div>
                             </div>
                             <div className="bg-green-50 border border-green-300 rounded p-3 mt-2">
                                 <p className="text-sm text-green-800">

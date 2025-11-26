@@ -70,21 +70,21 @@ export const ReportsView: React.FC = () => {
     };
 
     return (
-        <div className="p-8 h-full flex flex-col">
-            <h1 className="text-3xl font-bold text-gray-800 mb-8">{getLabel('sidebar_reports', 'Reportes')}</h1>
+        <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-4 md:mb-8">{getLabel('sidebar_reports', 'Reportes')}</h1>
 
-            <div className="space-y-8 flex-1 overflow-y-auto pr-1">
+            <div className="space-y-6 md:space-y-8 flex-1 overflow-y-auto pr-1">
                 {/* Candidates Report */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-semibold flex items-center"><Users className="mr-2" /> Todos los candidatos</h2>
-                        <div className="flex items-center space-x-4">
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3 sm:gap-4">
+                        <h2 className="text-lg md:text-xl font-semibold flex items-center"><Users className="mr-2 w-5 h-5" /> <span className="whitespace-nowrap">Todos los candidatos</span></h2>
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                              <div className="relative" ref={selectorRef}>
                                 <button
                                     onClick={() => setIsColumnSelectorOpen(prev => !prev)}
-                                    className="flex items-center text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm px-4 py-2 hover:bg-gray-50"
+                                    className="flex items-center text-xs sm:text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm px-3 sm:px-4 py-2 hover:bg-gray-50 whitespace-nowrap"
                                 >
-                                    Seleccionar columnas <ChevronDown className="w-4 h-4 ml-2" />
+                                    Seleccionar columnas <ChevronDown className="w-4 h-4 ml-1 sm:ml-2" />
                                 </button>
                                 {isColumnSelectorOpen && (
                                     <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
@@ -113,17 +113,17 @@ export const ReportsView: React.FC = () => {
                                     return row;
                                 });
                                 handleExport(dataToExport, 'reporte_candidatos');
-                            }} className="flex items-center text-sm font-medium text-primary-600 hover:text-primary-800">
+                            }} className="flex items-center text-xs sm:text-sm font-medium text-primary-600 hover:text-primary-800 whitespace-nowrap">
                                 <Download className="w-4 h-4 mr-1" /> Exportar JSON
                             </button>
                         </div>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left text-gray-500">
+                    <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                        <table className="w-full text-sm text-left text-gray-500 min-w-[600px]">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
                                     {selectedColumns.map(key => (
-                                        <th scope="col" key={key} className="px-6 py-3">
+                                        <th scope="col" key={key} className="px-3 md:px-6 py-3 whitespace-nowrap">
                                             {candidateReportOptions.find(opt => opt.key === key)?.label || key}
                                         </th>
                                     ))}
@@ -133,7 +133,7 @@ export const ReportsView: React.FC = () => {
                                 {candidates.map(candidate => (
                                     <tr key={candidate.id} className="bg-white border-b hover:bg-gray-50">
                                         {selectedColumns.map(key => (
-                                             <td key={key} className="px-6 py-4">
+                                             <td key={key} className="px-3 md:px-6 py-4 text-xs md:text-sm">
                                                 {/* FIX: Explicitly convert value to string to handle number types and prevent potential errors. */}
                                                 {String(getCandidateValue(candidate, key) || 'N/D')}
                                             </td>
@@ -146,9 +146,9 @@ export const ReportsView: React.FC = () => {
                 </div>
 
                 {/* Processes Report */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-semibold flex items-center"><Briefcase className="mr-2" /> Todos los procesos</h2>
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3 sm:gap-4">
+                        <h2 className="text-lg md:text-xl font-semibold flex items-center"><Briefcase className="mr-2 w-5 h-5" /> <span className="whitespace-nowrap">Todos los procesos</span></h2>
                         {/* Fix: Corrected the onClick handler to export a summary of process data, resolving the original type error. */}
                         <button onClick={() => {
                             const dataToExport = processes.map(process => ({
@@ -158,27 +158,27 @@ export const ReportsView: React.FC = () => {
                                 candidateCount: candidates.filter(c => c.processId === process.id).length
                             }));
                             handleExport(dataToExport, 'reporte_procesos');
-                        }} className="flex items-center text-sm font-medium text-primary-600 hover:text-primary-800">
+                        }} className="flex items-center text-xs sm:text-sm font-medium text-primary-600 hover:text-primary-800 whitespace-nowrap self-start sm:self-auto">
                             <Download className="w-4 h-4 mr-1" /> Exportar JSON
                         </button>
                     </div>
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left text-gray-500">
+                     <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                        <table className="w-full text-sm text-left text-gray-500 min-w-[600px]">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
-                                    <th scope="col" className="px-6 py-3">Título</th>
-                                    <th scope="col" className="px-6 py-3">Descripción</th>
-                                    <th scope="col" className="px-6 py-3">N.º etapas</th>
-                                    <th scope="col" className="px-6 py-3">N.º candidatos</th>
+                                    <th scope="col" className="px-3 md:px-6 py-3">Título</th>
+                                    <th scope="col" className="px-3 md:px-6 py-3">Descripción</th>
+                                    <th scope="col" className="px-3 md:px-6 py-3 whitespace-nowrap">N.º etapas</th>
+                                    <th scope="col" className="px-3 md:px-6 py-3 whitespace-nowrap">N.º candidatos</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {processes.map(process => (
                                     <tr key={process.id} className="bg-white border-b hover:bg-gray-50">
-                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{process.title}</th>
-                                        <td className="px-6 py-4">{process.description}</td>
-                                        <td className="px-6 py-4">{process.stages.length}</td>
-                                        <td className="px-6 py-4">{candidates.filter(c => c.processId === process.id).length}</td>
+                                        <th scope="row" className="px-3 md:px-6 py-4 font-medium text-gray-900 whitespace-nowrap text-xs md:text-sm">{process.title}</th>
+                                        <td className="px-3 md:px-6 py-4 text-xs md:text-sm">{process.description}</td>
+                                        <td className="px-3 md:px-6 py-4 text-xs md:text-sm">{process.stages.length}</td>
+                                        <td className="px-3 md:px-6 py-4 text-xs md:text-sm">{candidates.filter(c => c.processId === process.id).length}</td>
                                     </tr>
                                 ))}
                             </tbody>

@@ -4,6 +4,7 @@ import { Candidate } from '../types';
 import { X, Upload, Download, AlertCircle } from 'lucide-react';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import { obtenerFechaEmision } from '../lib/dateFormatter';
 
 const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -107,6 +108,9 @@ export const BulkLetterModal: React.FC<{ candidateIds: string[]; onClose: () => 
                         }
                     });
                     
+                    // Generar fecha de emisión automáticamente
+                    const fechaEmision = obtenerFechaEmision();
+                    
                     // Preparar datos con todas las variaciones posibles
                     const merged: Record<string, string> = {
                         candidateName: cand.name,
@@ -121,6 +125,15 @@ export const BulkLetterModal: React.FC<{ candidateIds: string[]; onClose: () => 
                         dni: cand.dni || '',
                         companyName: companyName,
                         Empresa: companyName,
+                        Salarioacordadoletras: cand.agreedSalaryInWords || '',
+                        salarioAcordadoLetras: cand.agreedSalaryInWords || '',
+                        salarioacordadoletras: cand.agreedSalaryInWords || '',
+                        SalarioAcordadoLetras: cand.agreedSalaryInWords || '',
+                        Fechaemision: fechaEmision,
+                        fechaEmision: fechaEmision,
+                        FechaEmision: fechaEmision,
+                        fechaemision: fechaEmision,
+                        FechaEmision: fechaEmision,
                         ...data,
                     };
                     

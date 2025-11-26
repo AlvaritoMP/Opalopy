@@ -87,6 +87,7 @@ export interface Candidate {
     source?: CandidateSource | string;
     salaryExpectation?: string;
     agreedSalary?: string; // Salario acordado con el candidato
+    agreedSalaryInWords?: string; // Salario acordado en letras (generado automáticamente)
     age?: number;
     dni?: string;
     linkedinUrl?: string;

@@ -93,16 +93,54 @@ export const settingsApi = {
         const mergedDbData = settingsToDb(mergedSettings);
         console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
         
-        const { data, error } = await supabase
+        // Separar campos opcionales que pueden no existir en el esquema
+        const { candidate_sources, provinces, districts, ...standardFields } = mergedDbData;
+        
+        // Primero actualizar campos estándar
+        const { error: standardError } = await supabase
             .from('app_settings')
-            .update(mergedDbData)
+            .update(standardFields)
+            .eq('id', SETTINGS_ID);
+        
+        if (standardError) {
+            console.error('Error updating standard settings fields:', standardError);
+            throw standardError;
+        }
+        
+        // Actualizar campos opcionales por separado (si existen)
+        const optionalFields: any = {};
+        if (candidate_sources !== undefined) optionalFields.candidate_sources = candidate_sources;
+        if (provinces !== undefined) optionalFields.provinces = provinces;
+        if (districts !== undefined) optionalFields.districts = districts;
+        
+        if (Object.keys(optionalFields).length > 0) {
+            const { error: optionalError } = await supabase
+                .from('app_settings')
+                .update(optionalFields)
+                .eq('id', SETTINGS_ID);
+            
+            if (optionalError) {
+                const errorMsg = optionalError.message || '';
+                if (errorMsg.includes('schema cache') || errorMsg.includes("Could not find") || errorMsg.includes("column")) {
+                    console.warn('⚠️ Algunas columnas opcionales (candidate_sources, provinces, districts) no existen en la base de datos. Por favor, ejecuta la migración SQL. Error:', optionalError.message);
+                    // No lanzar error, permitir que continúe
+                } else {
+                    console.error('Error updating optional settings fields:', optionalError);
+                    throw optionalError;
+                }
+            }
+        }
+        
+        // Obtener configuración actualizada
+        const { data, error: fetchError } = await supabase
+            .from('app_settings')
+            .select('*')
             .eq('id', SETTINGS_ID)
-            .select()
             .single();
         
-        if (error) {
-            console.error('Error updating settings in Supabase:', error);
-            throw error;
+        if (fetchError) {
+            console.error('Error fetching updated settings:', fetchError);
+            throw fetchError;
         }
         
         const result = dbToSettings(data);
