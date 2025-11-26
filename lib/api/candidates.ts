@@ -130,8 +130,9 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.dni !== undefined) dbCandidate.dni = candidate.dni;
     if (candidate.linkedinUrl !== undefined) dbCandidate.linkedin_url = candidate.linkedinUrl;
     if (candidate.address !== undefined) dbCandidate.address = candidate.address;
-    if (candidate.province !== undefined) dbCandidate.province = candidate.province;
-    if (candidate.district !== undefined) dbCandidate.district = candidate.district;
+    if (candidate.province !== undefined) dbCandidate.province = candidate.province && candidate.province.trim() ? candidate.province.trim() : null;
+    // El distrito puede quedar en blanco - se guarda como null si está vacío
+    if (candidate.district !== undefined) dbCandidate.district = candidate.district && candidate.district.trim() ? candidate.district.trim() : null;
     if (candidate.archived !== undefined) dbCandidate.archived = candidate.archived;
     if (candidate.archivedAt !== undefined) dbCandidate.archived_at = candidate.archivedAt;
     if (candidate.hireDate !== undefined) dbCandidate.hire_date = candidate.hireDate;

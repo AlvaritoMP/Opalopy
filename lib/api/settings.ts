@@ -16,6 +16,9 @@ function dbToSettings(dbSettings: any): AppSettings {
         dashboardLayout: dbSettings.dashboard_layout,
         templates: dbSettings.templates,
         reportTheme: dbSettings.report_theme,
+        candidateSources: dbSettings.candidate_sources || undefined,
+        provinces: dbSettings.provinces || undefined,
+        districts: dbSettings.districts || undefined,
     };
 }
 
@@ -32,6 +35,9 @@ function settingsToDb(settings: Partial<AppSettings>): any {
     if (settings.dashboardLayout !== undefined) dbSettings.dashboard_layout = settings.dashboardLayout;
     if (settings.templates !== undefined) dbSettings.templates = settings.templates;
     if (settings.reportTheme !== undefined) dbSettings.report_theme = settings.reportTheme;
+    if (settings.candidateSources !== undefined) dbSettings.candidate_sources = settings.candidateSources;
+    if (settings.provinces !== undefined) dbSettings.provinces = settings.provinces;
+    if (settings.districts !== undefined) dbSettings.districts = settings.districts;
     return dbSettings;
 }
 
