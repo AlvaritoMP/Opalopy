@@ -227,41 +227,67 @@ export const candidatesApi = {
             dbData.application_started_date = new Date().toISOString();
         }
 
-        // Separar agreed_salary_in_words para manejarlo por separado si la columna no existe
-        const { agreed_salary_in_words, ...standardCreateFields } = dbData;
-        
+        // Intentar insertar TODOS los campos primero (incluyendo agreed_salary_in_words si existe)
         const { data, error } = await supabase
             .from('candidates')
-            .insert(standardCreateFields)
+            .insert(dbData)
             .select()
             .single();
         
-        if (error) throw error;
-        
-        // Si hay agreed_salary_in_words, intentar actualizarlo por separado
-        if (agreed_salary_in_words !== undefined && data) {
-            try {
-                const { error: salaryWordsError } = await supabase
-                    .from('candidates')
-                    .update({ agreed_salary_in_words })
-                    .eq('id', data.id);
+        if (error) {
+            // Si falla y es por una columna que no existe, intentar sin los campos opcionales
+            const errorMsg = error.message || '';
+            const isColumnError = errorMsg.includes('schema cache') || 
+                                 errorMsg.includes("Could not find") ||
+                                 errorMsg.includes("column") ||
+                                 error.code === '42703';
+            
+            if (isColumnError) {
+                // Separar campos opcionales y reintentar
+                const { agreed_salary_in_words, province, district, critical_stage_reviewed_at, ...standardCreateFields } = dbData;
                 
-                if (salaryWordsError) {
-                    const errorMsg = salaryWordsError.message || '';
-                    const isColumnError = errorMsg.includes('schema cache') || 
-                                         errorMsg.includes("Could not find") || 
-                                         errorMsg.includes("column") ||
-                                         salaryWordsError.code === '42703';
-                    
-                    if (!isColumnError) {
-                        console.warn('Error actualizando agreed_salary_in_words al crear candidato:', salaryWordsError);
+                const { data: data2, error: error2 } = await supabase
+                    .from('candidates')
+                    .insert(standardCreateFields)
+                    .select()
+                    .single();
+                
+                if (error2) throw error2;
+                
+                // Si hay campos opcionales, intentar actualizarlos por separado
+                const optionalFields: any = {};
+                if (agreed_salary_in_words !== undefined) optionalFields.agreed_salary_in_words = agreed_salary_in_words;
+                if (province !== undefined) optionalFields.province = province;
+                if (district !== undefined) optionalFields.district = district;
+                if (critical_stage_reviewed_at !== undefined) optionalFields.critical_stage_reviewed_at = critical_stage_reviewed_at;
+                
+                if (Object.keys(optionalFields).length > 0 && data2) {
+                    try {
+                        const { error: optionalError } = await supabase
+                            .from('candidates')
+                            .update(optionalFields)
+                            .eq('id', data2.id);
+                        
+                        if (optionalError) {
+                            console.warn('⚠️ Algunos campos opcionales no se pudieron guardar. Ejecuta la migración SQL para habilitar todas las funcionalidades.');
+                            console.warn('Campos afectados:', Object.keys(optionalFields).join(', '));
+                        } else if (agreed_salary_in_words) {
+                            console.log('✅ Salario en letras guardado correctamente:', agreed_salary_in_words.substring(0, 50) + '...');
+                        }
+                    } catch (err) {
+                        console.warn('No se pudieron guardar algunos campos opcionales');
                     }
-                    // No fallar la creación si la columna no existe
                 }
-            } catch (err) {
-                // Ignorar errores de columna faltante
-                console.warn('No se pudo actualizar agreed_salary_in_words al crear candidato (columna puede no existir)');
+                
+                return await this.getById(data2.id) as Candidate;
+            } else {
+                throw error;
             }
+        }
+        
+        // Si el insert fue exitoso, verificar que agreed_salary_in_words se guardó
+        if (dbData.agreed_salary_in_words && data) {
+            console.log('✅ Candidato creado con salario en letras:', dbData.agreed_salary_in_words.substring(0, 50) + '...');
         }
 
         // Crear entrada inicial en historial
@@ -405,28 +431,56 @@ export const candidatesApi = {
         
         // Manejar agreed_salary_in_words por separado (la columna puede no existir aún)
         if (agreed_salary_in_words !== undefined) {
-            try {
-                const { error: salaryWordsError } = await supabase
-                    .from('candidates')
-                    .update({ agreed_salary_in_words })
-                    .eq('id', id);
-                
-                if (salaryWordsError) {
-                    const errorMsg = salaryWordsError.message || '';
-                    const isColumnError = errorMsg.includes('schema cache') || 
-                                         errorMsg.includes("Could not find") || 
-                                         errorMsg.includes("column") ||
-                                         salaryWordsError.code === '42703';
+            // Solo intentar guardar si tiene un valor válido
+            if (agreed_salary_in_words && agreed_salary_in_words.trim() !== '') {
+                try {
+                    console.log('💾 Intentando guardar salario en letras:', agreed_salary_in_words.substring(0, 50) + '...');
                     
-                    if (isColumnError) {
-                        console.warn('⚠️ La columna agreed_salary_in_words no existe en la base de datos. Ejecuta la migración SQL para habilitar esta funcionalidad.');
+                    const { error: salaryWordsError, data: updatedData } = await supabase
+                        .from('candidates')
+                        .update({ agreed_salary_in_words })
+                        .eq('id', id)
+                        .select('agreed_salary_in_words')
+                        .single();
+                    
+                    if (salaryWordsError) {
+                        const errorMsg = salaryWordsError.message || '';
+                        const isColumnError = errorMsg.includes('schema cache') || 
+                                             errorMsg.includes("Could not find") ||
+                                             errorMsg.includes("column") ||
+                                             errorMsg.includes("42703");
+                        
+                        if (isColumnError) {
+                            console.error('❌ La columna agreed_salary_in_words NO EXISTE en la base de datos.');
+                            console.error('⚠️ Ejecuta el script MIGRATION_COMPLETA_CANDIDATES.sql en Supabase para crear la columna.');
+                            console.error('📝 Valor que no se pudo guardar:', agreed_salary_in_words.substring(0, 100) + '...');
+                            // Mostrar alerta visual al usuario
+                            throw new Error('La columna agreed_salary_in_words no existe en la base de datos. Por favor, ejecuta la migración SQL MIGRATION_COMPLETA_CANDIDATES.sql en Supabase para habilitar esta funcionalidad.');
+                        } else {
+                            console.error('❌ Error inesperado actualizando agreed_salary_in_words:', salaryWordsError);
+                            throw salaryWordsError;
+                        }
                     } else {
-                        console.warn('Error actualizando agreed_salary_in_words:', salaryWordsError);
+                        console.log('✅ Salario en letras guardado correctamente en la base de datos');
+                        if (updatedData?.agreed_salary_in_words) {
+                            console.log('✅ Verificado en BD:', updatedData.agreed_salary_in_words.substring(0, 50) + '...');
+                        }
                     }
+                } catch (err: any) {
+                    const errorMsg = err?.message || '';
+                    const isColumnError = errorMsg.includes('schema cache') || 
+                                         errorMsg.includes("Could not find") ||
+                                         errorMsg.includes("column") ||
+                                         errorMsg.includes("42703");
+                    
+                    if (!isColumnError && !errorMsg.includes('columna')) {
+                        // Solo relanzar si no es error de columna faltante
+                        throw err;
+                    }
+                    // Si es error de columna, ya se mostró el mensaje arriba
                 }
-            } catch (err: any) {
-                // Ignorar errores de columna faltante
-                console.warn('No se pudo actualizar agreed_salary_in_words');
+            } else {
+                console.warn('⚠️ agreed_salary_in_words está vacío o null, no se guardará');
             }
         }
 
