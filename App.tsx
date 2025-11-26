@@ -321,17 +321,6 @@ const Sidebar: React.FC = () => {
                         <X className="w-5 h-5 text-gray-600" />
                     </button>
                 </div>
-            <div className={`flex items-center border-b p-4 h-16 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-                {!isCollapsed && (
-                     <div className="flex items-center overflow-hidden">
-                        {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-8 mr-2 object-contain" />}
-                        <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'ATS Pro'}</span>
-                    </div>
-                )}
-                <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-2 rounded-md hover:bg-gray-100 flex-shrink-0">
-                    {isCollapsed ? <ChevronsRight className="w-5 h-5 text-gray-600" /> : <ChevronsLeft className="w-5 h-5 text-gray-600" />}
-                </button>
-            </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {canSeeSection('dashboard') && <NavItem icon={LayoutDashboard} label={getLabel('sidebar_dashboard', 'Panel')} view="dashboard" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('processes') && <NavItem icon={Briefcase} label={getLabel('sidebar_processes', 'Procesos')} view="processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
