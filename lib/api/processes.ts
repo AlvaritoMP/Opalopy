@@ -11,6 +11,7 @@ function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any
             id: s.id,
             name: s.name,
             requiredDocuments: s.required_documents || undefined,
+            isCritical: s.is_critical === true || s.is_critical === 1 || s.is_critical === 'true',
         })),
         salaryRange: dbProcess.salary_range,
         experienceLevel: dbProcess.experience_level,
@@ -183,6 +184,7 @@ export const processesApi = {
 
         // Crear stages
         if (processData.stages && processData.stages.length > 0) {
+            // Insertar stages sin is_critical primero (campos estándar)
             const stagesToInsert = processData.stages.map((stage, index) => ({
                 process_id: process.id,
                 name: stage.name,
@@ -190,11 +192,78 @@ export const processesApi = {
                 required_documents: stage.requiredDocuments || null,
             }));
 
-            const { error: stagesError } = await supabase
-                .from('stages')
-                .insert(stagesToInsert);
+            // Intentar insertar con is_critical primero (si la columna existe funcionará)
+            const stagesWithCritical = processData.stages.map((stage, index) => ({
+                process_id: process.id,
+                name: stage.name,
+                order_index: index,
+                required_documents: stage.requiredDocuments || null,
+                is_critical: stage.isCritical || false,
+            }));
             
-            if (stagesError) throw stagesError;
+            const { data: insertedStages, error: stagesError } = await supabase
+                .from('stages')
+                .insert(stagesWithCritical)
+                .select('id, order_index');
+            
+            // Si falla y es porque la columna no existe, intentar sin is_critical
+            if (stagesError) {
+                const isColumnError = stagesError.message?.includes('is_critical') || 
+                                     stagesError.message?.includes('schema cache') ||
+                                     stagesError.message?.includes('column') ||
+                                     stagesError.code === '42703';
+                
+                if (isColumnError) {
+                    console.warn('⚠️ La columna is_critical no existe. Insertando stages sin este campo...');
+                    // Insertar sin is_critical
+                    const { error: stagesError2 } = await supabase
+                        .from('stages')
+                        .insert(stagesToInsert);
+                    
+                    if (stagesError2) throw stagesError2;
+                    
+                    // Intentar actualizar is_critical después
+                    const { data: insertedStages2 } = await supabase
+                        .from('stages')
+                        .select('id, order_index')
+                        .eq('process_id', process.id)
+                        .order('order_index');
+                    
+                    if (insertedStages2) {
+                        for (let i = 0; i < processData.stages.length && i < insertedStages2.length; i++) {
+                            if (processData.stages[i].isCritical) {
+                                try {
+                                    await supabase
+                                        .from('stages')
+                                        .update({ is_critical: true })
+                                        .eq('id', insertedStages2[i].id);
+                                } catch (err) {
+                                    // Ignorar si falla
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    throw stagesError;
+                }
+            } else if (insertedStages) {
+                // Si el insert funcionó pero algunos stages no tienen is_critical correcto, actualizar
+                for (let i = 0; i < processData.stages.length && i < insertedStages.length; i++) {
+                    const shouldBeCritical = processData.stages[i].isCritical || false;
+                    const insertedStage = insertedStages.find(s => s.order_index === i);
+                    if (insertedStage && shouldBeCritical) {
+                        // Verificar y actualizar si es necesario
+                        try {
+                            await supabase
+                                .from('stages')
+                                .update({ is_critical: true })
+                                .eq('id', insertedStage.id);
+                        } catch (err) {
+                            // Ignorar si falla
+                        }
+                    }
+                }
+            }
         }
 
         // Crear categorías de documentos
@@ -307,7 +376,7 @@ export const processesApi = {
             // Obtener stages existentes de la base de datos
             const { data: existingStages, error: fetchError } = await supabase
                 .from('stages')
-                .select('id, name, order_index, required_documents')
+                .select('id, name, order_index, required_documents, is_critical')
                 .eq('process_id', id)
                 .order('order_index');
             
@@ -320,30 +389,36 @@ export const processesApi = {
             const newStagesMap = new Map(processData.stages.map((s, index) => [s.id, { ...s, order_index: index }]));
             
             // Separar stages en: actualizar, insertar, y eliminar
-            const stagesToUpdate: Array<{ id: string; name: string; order_index: number; required_documents: any }> = [];
-            const stagesToInsert: Array<{ process_id: string; name: string; order_index: number; required_documents: any }> = [];
+            const stagesToUpdate: Array<{ id: string; name: string; order_index: number; required_documents: any; is_critical: boolean }> = [];
+            const stagesToInsert: Array<{ process_id: string; name: string; order_index: number; required_documents: any; is_critical: boolean }> = [];
             const stagesToDelete: string[] = [];
             
             // Identificar qué hacer con cada stage existente
             existingStagesMap.forEach((existingStage, stageId) => {
                 const newStage = newStagesMap.get(stageId);
                 if (newStage) {
+                    const existingIsCritical = existingStage.is_critical || false;
+                    const newIsCritical = newStage.isCritical || false;
+                    
                     // Stage existe en ambos, actualizar si cambió
                     if (newStage.name !== existingStage.name || 
-                        JSON.stringify(newStage.requiredDocuments || []) !== JSON.stringify(existingStage.required_documents || [])) {
+                        JSON.stringify(newStage.requiredDocuments || []) !== JSON.stringify(existingStage.required_documents || []) ||
+                        newIsCritical !== existingIsCritical) {
                         stagesToUpdate.push({
                             id: stageId,
                             name: newStage.name,
                             order_index: newStage.order_index,
                             required_documents: newStage.requiredDocuments || null,
+                            is_critical: newIsCritical,
                         });
                     } else if (newStage.order_index !== existingStage.order_index) {
-                        // Solo cambió el orden
+                        // Solo cambió el orden, pero mantener otros valores
                         stagesToUpdate.push({
                             id: stageId,
                             name: existingStage.name,
                             order_index: newStage.order_index,
                             required_documents: existingStage.required_documents,
+                            is_critical: existingIsCritical,
                         });
                     }
                 } else {
@@ -363,6 +438,7 @@ export const processesApi = {
                         name: stage.name,
                         order_index: index,
                         required_documents: stage.requiredDocuments || null,
+                        is_critical: stage.isCritical || false,
                     });
                 }
             });
@@ -388,30 +464,97 @@ export const processesApi = {
             
             // Ahora actualizar stages existentes con los valores finales
             for (const stage of stagesToUpdate) {
+                // Primero actualizar campos estándar (que siempre existen)
+                const standardUpdate: any = {
+                    name: stage.name,
+                    order_index: stage.order_index,
+                    required_documents: stage.required_documents,
+                };
+                
                 const { error: updateError } = await supabase
                     .from('stages')
-                    .update({
-                        name: stage.name,
-                        order_index: stage.order_index,
-                        required_documents: stage.required_documents,
-                    })
+                    .update(standardUpdate)
                     .eq('id', stage.id);
                 
                 if (updateError) {
                     console.error(`Error actualizando stage ${stage.id}:`, updateError);
                     throw updateError;
                 }
+                
+                // Intentar actualizar is_critical por separado (la columna puede no existir aún)
+                if (stage.is_critical !== undefined) {
+                    try {
+                        const { error: criticalError } = await supabase
+                            .from('stages')
+                            .update({ is_critical: stage.is_critical })
+                            .eq('id', stage.id);
+                        
+                        if (criticalError) {
+                            // Si el error es porque la columna no existe, solo loguear y continuar
+                            const isColumnError = criticalError.message?.includes('is_critical') || 
+                                                 criticalError.message?.includes('schema cache') ||
+                                                 criticalError.message?.includes('column') ||
+                                                 criticalError.code === '42703';
+                            
+                            if (isColumnError) {
+                                console.warn(`⚠️ La columna is_critical no existe en la tabla stages. Agrega esta columna para que las etapas críticas persistan.`);
+                            } else {
+                                // Para otros errores, solo loguear pero continuar
+                                console.warn(`Error actualizando is_critical para stage ${stage.id}:`, criticalError);
+                            }
+                        }
+                    } catch (err: any) {
+                        // Ignorar errores de columna faltante, continuar con el siguiente stage
+                        console.warn(`No se pudo actualizar is_critical para stage ${stage.id}`);
+                    }
+                }
             }
             
-            // Insertar nuevos stages
+            // Insertar nuevos stages (sin is_critical primero)
             if (stagesToInsert.length > 0) {
-                const { error: insertError } = await supabase
+                const stagesWithoutCritical = stagesToInsert.map(s => ({
+                    process_id: s.process_id,
+                    name: s.name,
+                    order_index: s.order_index,
+                    required_documents: s.required_documents,
+                }));
+                
+                const { data: insertedStages, error: insertError } = await supabase
                     .from('stages')
-                    .insert(stagesToInsert);
+                    .insert(stagesWithoutCritical)
+                    .select('id, order_index');
                 
                 if (insertError) {
                     console.error('Error insertando nuevos stages:', insertError);
                     throw insertError;
+                }
+                
+                // Ahora intentar actualizar is_critical por separado para cada stage insertado
+                if (insertedStages) {
+                    for (const insertedStage of insertedStages) {
+                        const originalStage = stagesToInsert.find(s => s.order_index === insertedStage.order_index);
+                        if (originalStage && originalStage.is_critical) {
+                            try {
+                                const { error: criticalError } = await supabase
+                                    .from('stages')
+                                    .update({ is_critical: true })
+                                    .eq('id', insertedStage.id);
+                                
+                                if (criticalError) {
+                                    const isColumnError = criticalError.message?.includes('is_critical') || 
+                                                         criticalError.message?.includes('schema cache') ||
+                                                         criticalError.message?.includes('column') ||
+                                                         criticalError.code === '42703';
+                                    if (isColumnError) {
+                                        console.warn('⚠️ La columna is_critical no existe en la tabla stages.');
+                                    }
+                                }
+                            } catch (err) {
+                                // Ignorar errores de columna faltante
+                                console.warn('No se pudo guardar is_critical para un stage nuevo');
+                            }
+                        }
+                    }
                 }
             }
             
