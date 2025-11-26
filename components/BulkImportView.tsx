@@ -93,6 +93,10 @@ const parseExcel = (data: ArrayBuffer): Omit<Candidate, 'id' | 'history' | 'proc
                     'phone': 'phone',
                     'teléfono': 'phone',
                     'telefono': 'phone',
+                    'phone2': 'phone2',
+                    'teléfono 2': 'phone2',
+                    'telefono2': 'phone2',
+                    'teléfono2': 'phone2',
                     'description': 'description',
                     'descripción': 'description',
                     'descripcion': 'description',
@@ -231,7 +235,7 @@ export const BulkImportView: React.FC = () => {
                         
                         // Agregar campos opcionales solo si tienen valor definido
                         const optionalFields = [
-                            'phone', 'description', 'source', 'salaryExpectation', 
+                            'phone', 'phone2', 'description', 'source', 'salaryExpectation', 
                             'agreedSalary', 'age', 'dni', 'linkedinUrl', 'address'
                         ];
                         

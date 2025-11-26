@@ -7,6 +7,7 @@ const candidateReportOptions: { key: keyof Candidate | 'process' | 'stage'; labe
     { key: 'name', label: 'Nombre' },
     { key: 'email', label: 'Correo' },
     { key: 'phone', label: 'Teléfono' },
+    { key: 'phone2', label: 'Teléfono 2' },
     { key: 'process', label: 'Proceso' },
     { key: 'stage', label: 'Etapa actual' },
     { key: 'source', label: 'Fuente' },

@@ -29,6 +29,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
+    const [phone2, setPhone2] = useState('');
     const [avatarUrl, setAvatarUrl] = useState('');
     const [description, setDescription] = useState('');
     const [source, setSource] = useState<Candidate['source']>(getDefaultSource());
@@ -58,6 +59,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                 name,
                 email,
                 phone,
+                phone2,
                 avatarUrl,
                 description,
                 processId: process.id,
@@ -151,6 +153,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                         <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700">Resumen / descripción</label><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} className="mt-1 block w-full input" /></div>
 
                         <div><label className="block text-sm font-medium text-gray-700">Teléfono</label><input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1 block w-full input"/></div>
+                        <div><label className="block text-sm font-medium text-gray-700">Teléfono 2</label><input type="tel" value={phone2} onChange={e => setPhone2(e.target.value)} className="mt-1 block w-full input" placeholder="Opcional"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" value={dni} onChange={e => setDni(e.target.value)} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Ej: Ciudad de México" className="mt-1 block w-full input"/></div>

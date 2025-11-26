@@ -68,6 +68,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         name: dbCandidate.name,
         email: dbCandidate.email,
         phone: dbCandidate.phone,
+        phone2: dbCandidate.phone2,
         processId: dbCandidate.process_id,
         stageId: dbCandidate.stage_id,
         description: dbCandidate.description,
@@ -123,6 +124,7 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.name !== undefined) dbCandidate.name = candidate.name;
     if (candidate.email !== undefined) dbCandidate.email = candidate.email;
     if (candidate.phone !== undefined) dbCandidate.phone = candidate.phone;
+    if (candidate.phone2 !== undefined) dbCandidate.phone2 = candidate.phone2;
     if (candidate.processId !== undefined) dbCandidate.process_id = candidate.processId;
     if (candidate.stageId !== undefined) dbCandidate.stage_id = candidate.stageId;
     if (candidate.description !== undefined) dbCandidate.description = candidate.description;

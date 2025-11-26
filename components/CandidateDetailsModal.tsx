@@ -134,10 +134,16 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const currentStageIndex = processStages.findIndex(stage => stage.id === currentCandidate.stageId);
     const canEditHireDate = presentationStageIndex !== -1 && currentStageIndex !== -1 && currentStageIndex >= presentationStageIndex;
     const normalizedPhone = currentCandidate.phone ? currentCandidate.phone.replace(/[^\d]/g, '') : '';
+    const normalizedPhone2 = currentCandidate.phone2 ? currentCandidate.phone2.replace(/[^\d]/g, '') : '';
 
     const handleCopyPhone = () => {
         if (!currentCandidate.phone) return;
         navigator.clipboard.writeText(currentCandidate.phone);
+    };
+
+    const handleCopyPhone2 = () => {
+        if (!currentCandidate.phone2) return;
+        navigator.clipboard.writeText(currentCandidate.phone2);
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -707,6 +713,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                 <div><label className="block text-sm font-medium text-gray-700">Nombre completo</label><input type="text" name="name" value={editableCandidate.name} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Correo</label><input type="email" name="email" value={editableCandidate.email} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Teléfono</label><input type="tel" name="phone" value={editableCandidate.phone || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
+                                                <div><label className="block text-sm font-medium text-gray-700">Teléfono 2</label><input type="tel" name="phone2" value={editableCandidate.phone2 || ''} onChange={handleInputChange} className="mt-1 block w-full input" placeholder="Opcional"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" name="age" value={editableCandidate.age || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" name="dni" value={editableCandidate.dni || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" name="address" value={editableCandidate.address || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
@@ -871,6 +878,45 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                         </div>
                                                     )}
                                                 </div>
+                                                {currentCandidate.phone2 && (
+                                                    <div className="flex flex-col">
+                                                        <div className="flex items-start text-sm">
+                                                            <Phone className="w-4 h-4 mr-3 mt-0.5 text-gray-400 flex-shrink-0" />
+                                                            <div className="flex-1">
+                                                                <span className="font-medium text-gray-700">Teléfono 2: </span>
+                                                                <span className="text-gray-600">{currentCandidate.phone2}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-2 mt-2 ml-7">
+                                                            <button
+                                                                onClick={handleCopyPhone2}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                            >
+                                                                <Copy className="w-3.5 h-3.5" /> Copiar
+                                                            </button>
+                                                            <a
+                                                                href={`tel:${currentCandidate.phone2}`}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-primary-200 text-xs font-medium text-primary-700 hover:bg-primary-50"
+                                                            >
+                                                                <Phone className="w-3.5 h-3.5" /> Llamar
+                                                            </a>
+                                                            <a
+                                                                href={`https://wa.me/${normalizedPhone2}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-green-200 text-xs font-medium text-green-700 hover:bg-green-50"
+                                                            >
+                                                                <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                                                            </a>
+                                                            <a
+                                                                href={`whatsapp://call?phone=${normalizedPhone2}`}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-green-200 text-xs font-medium text-green-700 hover:bg-green-50"
+                                                            >
+                                                                <PhoneCall className="w-3.5 h-3.5" /> Llamada WA
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 <DetailItem icon={Linkedin} label="LinkedIn" value={currentCandidate.linkedinUrl} href={currentCandidate.linkedinUrl} />
                                                 <DetailItem icon={Calendar} label="Edad" value={currentCandidate.age} />
                                                 <DetailItem icon={Info} label="DNI" value={currentCandidate.dni} />

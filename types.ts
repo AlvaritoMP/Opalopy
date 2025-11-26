@@ -78,6 +78,7 @@ export interface Candidate {
     name: string;
     email: string;
     phone?: string;
+    phone2?: string; // Segundo número de teléfono
     processId: string;
     stageId: string;
     description?: string;
