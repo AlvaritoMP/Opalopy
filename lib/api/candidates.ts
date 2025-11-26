@@ -269,12 +269,45 @@ export const candidatesApi = {
         if (!current) throw new Error('Candidate not found');
 
         const dbData = candidateToDb(candidateData);
-        const { error } = await supabase
+        
+        // Separar campos que pueden no existir en el esquema (province, district)
+        // Si las columnas no existen en la BD, se omiten de la actualización
+        const { province, district, ...standardFields } = dbData;
+        
+        // Primero intentar actualizar solo los campos estándar
+        const { error: standardError } = await supabase
             .from('candidates')
-            .update(dbData)
+            .update(standardFields)
             .eq('id', id);
         
-        if (error) throw error;
+        if (standardError) throw standardError;
+        
+        // Si hay province o district y no hay error, intentar actualizarlos por separado
+        // Esto permite que funcione aunque las columnas no existan aún
+        if (province !== undefined || district !== undefined) {
+            const locationFields: any = {};
+            if (province !== undefined) locationFields.province = province;
+            if (district !== undefined) locationFields.district = district;
+            
+            // Intentar actualizar campos de ubicación - ignorar error si columnas no existen
+            const { error: locationError } = await supabase
+                .from('candidates')
+                .update(locationFields)
+                .eq('id', id);
+            
+            // Si hay error, verificar si es por columnas faltantes
+            if (locationError) {
+                const errorMsg = locationError.message || '';
+                // Si el error es porque las columnas no existen, solo mostrar warning
+                if (errorMsg.includes('schema cache') || errorMsg.includes("Could not find") || errorMsg.includes("column")) {
+                    console.warn('⚠️ Las columnas province/district no existen en la base de datos. Los campos de ubicación no se guardaron. Por favor, agrega estas columnas a la tabla candidates en Supabase.');
+                    // No lanzar error para no bloquear la actualización de otros campos
+                } else {
+                    // Para otros errores, sí lanzar
+                    throw locationError;
+                }
+            }
+        }
 
         // Si cambió el stage, agregar al historial
         if (candidateData.stageId && candidateData.stageId !== current.stageId) {

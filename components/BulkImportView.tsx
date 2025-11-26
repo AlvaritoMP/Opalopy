@@ -6,23 +6,58 @@ import { Upload, FileText, UserPlus } from 'lucide-react';
 import { Candidate } from '../types';
 import * as XLSX from 'xlsx';
 
-// CSV parser
+// Función para parsear CSV correctamente (maneja comas dentro de valores entre comillas)
+const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+        
+        if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+                // Doble comilla escapada
+                current += '"';
+                i++; // Saltar la siguiente comilla
+            } else {
+                // Toggle de comillas
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            // Separador fuera de comillas
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    // Agregar el último campo
+    result.push(current.trim());
+    return result;
+};
+
+// CSV parser mejorado
 const parseCSV = (csvText: string): Omit<Candidate, 'id' | 'history' | 'processId' | 'stageId' | 'attachments'>[] => {
     const lines = csvText.split('\n').filter(line => line.trim() !== '');
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().replace(/^"|"$/g, ''));
     const candidates: Omit<Candidate, 'id' | 'history' | 'processId' | 'stageId' | 'attachments'>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+        const values = parseCSVLine(lines[i]).map(v => v.trim().replace(/^"|"$/g, ''));
         const candidate: any = {};
         headers.forEach((header, index) => {
-            // A very basic transformation for numeric values
-            if (header === 'age' && values[index] && !isNaN(Number(values[index]))) {
-                 candidate[header] = Number(values[index]);
-            } else {
-                 candidate[header] = values[index];
+            const value = values[index] || '';
+            // Transformar valores vacíos a undefined
+            const cleanValue = value.trim() === '' ? undefined : value.trim();
+            
+            if (header === 'age' && cleanValue && !isNaN(Number(cleanValue))) {
+                candidate[header] = Number(cleanValue);
+            } else if (cleanValue !== undefined) {
+                candidate[header] = cleanValue;
             }
         });
         candidates.push(candidate);
@@ -84,7 +119,12 @@ const parseExcel = (data: ArrayBuffer): Omit<Candidate, 'id' | 'history' | 'proc
                 };
                 
                 const mappedKey = keyMapping[normalizedKey] || key.trim();
-                candidate[mappedKey] = value === '' ? undefined : value;
+                // Normalizar valores vacíos a undefined
+                if (value === '' || value === null || value === undefined) {
+                    candidate[mappedKey] = undefined;
+                } else {
+                    candidate[mappedKey] = typeof value === 'string' ? value.trim() : value;
+                }
             }
         });
         candidates.push(candidate);
@@ -99,7 +139,7 @@ export const BulkImportView: React.FC = () => {
     const [file, setFile] = useState<File | null>(null);
     const [processId, setProcessId] = useState<string>(state.processes[0]?.id || '');
     const [isImporting, setIsImporting] = useState(false);
-    const [importResult, setImportResult] = useState<{ success: number, failed: number } | null>(null);
+    const [importResult, setImportResult] = useState<{ success: number, failed: number, errors: string[] } | null>(null);
     
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -139,40 +179,104 @@ export const BulkImportView: React.FC = () => {
                     parsedCandidates = parseCSV(text);
                 }
                 let successCount = 0;
+                const errors: string[] = [];
                 
-                for (const candidateData of parsedCandidates) {
-                    if (candidateData.name && candidateData.email) {
-                        try {
-                            await actions.addCandidate({
-                                name: candidateData.name,
-                                email: candidateData.email,
-                                processId,
-                                stageId: firstStageId,
-                                attachments: [],
-                                phone: candidateData.phone,
-                                description: candidateData.description,
-                                source: candidateData.source,
-                                salaryExpectation: candidateData.salaryExpectation,
-                                agreedSalary: candidateData.agreedSalary,
-                                age: candidateData.age,
-                                dni: candidateData.dni,
-                                linkedinUrl: candidateData.linkedinUrl,
-                                address: candidateData.address,
-                                province: candidateData.province,
-                                district: candidateData.district,
-                            });
-                            successCount++;
-                        } catch (error) {
-                            console.error(`Error creando candidato ${candidateData.name}:`, error);
-                            // Continuar con el siguiente candidato
+                // Función para limpiar y normalizar valores
+                const cleanValue = (value: any): any => {
+                    if (value === undefined || value === null || value === '') return undefined;
+                    if (typeof value === 'string') {
+                        const trimmed = value.trim();
+                        return trimmed === '' ? undefined : trimmed;
+                    }
+                    return value;
+                };
+                
+                // Función para limpiar valores de ubicación (normalizar cadenas vacías a null)
+                const cleanLocationValue = (value: any): string | undefined => {
+                    const cleaned = cleanValue(value);
+                    if (cleaned === undefined) return undefined;
+                    return cleaned && cleaned.trim() ? cleaned.trim() : undefined;
+                };
+                
+                for (let index = 0; index < parsedCandidates.length; index++) {
+                    const candidateData = parsedCandidates[index];
+                    const rowNumber = index + 2; // +2 porque index es 0-based y la fila 1 es el header
+                    
+                    // Validar campos requeridos
+                    const name = cleanValue(candidateData.name);
+                    const email = cleanValue(candidateData.email);
+                    
+                    if (!name || !email) {
+                        errors.push(`Fila ${rowNumber}: Faltan campos requeridos (nombre: "${name || 'vacío'}", email: "${email || 'vacío'}")`);
+                        continue;
+                    }
+                    
+                    // Validar formato de email básico
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(email)) {
+                        errors.push(`Fila ${rowNumber} (${name}): Email inválido "${email}"`);
+                        continue;
+                    }
+                    
+                    try {
+                        // Limpiar y preparar los datos del candidato
+                        // Solo incluir campos que tienen valores (no undefined)
+                        const cleanCandidateData: any = {
+                            name: name,
+                            email: email,
+                            processId,
+                            stageId: firstStageId,
+                            attachments: [],
+                        };
+                        
+                        // Agregar campos opcionales solo si tienen valor definido
+                        const optionalFields = [
+                            'phone', 'description', 'source', 'salaryExpectation', 
+                            'agreedSalary', 'age', 'dni', 'linkedinUrl', 'address'
+                        ];
+                        
+                        optionalFields.forEach(field => {
+                            const cleaned = cleanValue(candidateData[field]);
+                            // Solo agregar si tiene un valor válido (no undefined)
+                            if (cleaned !== undefined) {
+                                cleanCandidateData[field] = cleaned;
+                            }
+                        });
+                        
+                        // Campos de ubicación (pueden quedar en blanco, se normalizan a null si están vacíos)
+                        const province = cleanLocationValue(candidateData.province);
+                        const district = cleanLocationValue(candidateData.district);
+                        if (province !== undefined) {
+                            cleanCandidateData.province = province;
                         }
+                        if (district !== undefined) {
+                            cleanCandidateData.district = district;
+                        }
+                        
+                        await actions.addCandidate(cleanCandidateData);
+                        successCount++;
+                    } catch (error: any) {
+                        const errorMsg = error?.message || 'Error desconocido';
+                        errors.push(`Fila ${rowNumber} (${name || 'sin nombre'}): ${errorMsg}`);
+                        console.error(`Error creando candidato ${name} (fila ${rowNumber}):`, error);
+                        // Continuar con el siguiente candidato - no detener toda la importación
                     }
                 }
-                setImportResult({ success: successCount, failed: parsedCandidates.length - successCount });
+                
+                setImportResult({ 
+                    success: successCount, 
+                    failed: parsedCandidates.length - successCount,
+                    errors: errors.slice(0, 10) // Limitar a 10 errores para no saturar la UI
+                });
             } catch (error) {
                 console.error("Failed to parse or import file", error);
-                alert(`Ocurrió un error durante la importación: ${error instanceof Error ? error.message : 'Error desconocido'}. Revisa la consola para más detalles.`);
-                setImportResult({ success: 0, failed: parsedCandidates.length });
+                const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+                alert(`Ocurrió un error durante la importación: ${errorMsg}. Revisa la consola para más detalles.`);
+                setImportResult({ 
+                    success: 0, 
+                    failed: parsedCandidates.length,
+                    errors: [`Error al parsear el archivo: ${errorMsg}`]
+                });
             } finally {
                 setIsImporting(false);
                 setFile(null);
@@ -256,8 +360,25 @@ export const BulkImportView: React.FC = () => {
                 {importResult && (
                     <div className={`mt-6 p-4 rounded-md border ${importResult.failed > 0 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
                         <h3 className="font-medium">Importación completada</h3>
-                        <p>Importados correctamente: {importResult.success} candidatos.</p>
-                        {importResult.failed > 0 && <p>No se importaron: {importResult.failed} candidatos (faltaba nombre o email).</p>}
+                        <p className="font-semibold">✅ Importados correctamente: {importResult.success} candidato{importResult.success !== 1 ? 's' : ''}.</p>
+                        {importResult.failed > 0 && (
+                            <div className="mt-3">
+                                <p className="font-semibold">⚠️ No se importaron: {importResult.failed} candidato{importResult.failed !== 1 ? 's' : ''}.</p>
+                                {importResult.errors && importResult.errors.length > 0 && (
+                                    <details className="mt-2">
+                                        <summary className="cursor-pointer text-sm font-medium underline">Ver detalles de errores (primeros {importResult.errors.length})</summary>
+                                        <ul className="mt-2 ml-4 list-disc text-xs space-y-1 max-h-40 overflow-y-auto">
+                                            {importResult.errors.map((error, idx) => (
+                                                <li key={idx}>{error}</li>
+                                            ))}
+                                        </ul>
+                                        {importResult.failed > importResult.errors.length && (
+                                            <p className="mt-2 text-xs italic">... y {importResult.failed - importResult.errors.length} error{importResult.failed - importResult.errors.length !== 1 ? 'es' : ''} más</p>
+                                        )}
+                                    </details>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
