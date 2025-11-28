@@ -817,6 +817,62 @@ const App: React.FC = () => {
                 // Cargar relaciones (post-its, comments, history) para que persistan después de recargar
                 const candidates = await candidatesApi.getAll(false, true); // false = no archived, true = include relations
                 setState(s => ({ ...s, candidates }));
+                
+                // Verificar y corregir carpetas de Google Drive si está conectado (en background, sin bloquear)
+                const googleDriveConfig = state.settings?.googleDrive;
+                const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+                if (isGoogleDriveConnected && googleDriveConfig) {
+                    // Ejecutar verificación en background sin bloquear la UI
+                    (async () => {
+                        try {
+                            const { googleDriveService } = await import('./lib/googleDrive');
+                            googleDriveService.initialize(googleDriveConfig);
+                            
+                            // Verificar carpetas de candidatos que tienen proceso con carpeta configurada
+                            for (const candidate of candidates) {
+                                if (!candidate.googleDriveFolderId) continue;
+                                
+                                const process = state.processes.find(p => p.id === candidate.processId);
+                                if (!process?.googleDriveFolderId) continue;
+                                
+                                try {
+                                    // Verificar si la carpeta guardada aún existe
+                                    const folder = await googleDriveService.getOrCreateCandidateFolder(
+                                        candidate.name,
+                                        process.googleDriveFolderId,
+                                        candidate.googleDriveFolderId
+                                    );
+                                    
+                                    // Si la carpeta encontrada es diferente, actualizar el candidato
+                                    if (folder.id !== candidate.googleDriveFolderId) {
+                                        console.log(`🔄 Actualizando carpeta de candidato ${candidate.name}: ${candidate.googleDriveFolderId} → ${folder.id}`);
+                                        await candidatesApi.update(candidate.id, {
+                                            ...candidate,
+                                            googleDriveFolderId: folder.id,
+                                            googleDriveFolderName: folder.name,
+                                        }, state.currentUser?.id);
+                                        
+                                        // Actualizar estado local
+                                        setState(s => ({
+                                            ...s,
+                                            candidates: s.candidates.map(c => 
+                                                c.id === candidate.id 
+                                                    ? { ...c, googleDriveFolderId: folder.id, googleDriveFolderName: folder.name }
+                                                    : c
+                                            )
+                                        }));
+                                    }
+                                } catch (error) {
+                                    // Ignorar errores individuales para no bloquear el proceso
+                                    console.warn(`Error verificando carpeta para candidato ${candidate.name}:`, error);
+                                }
+                            }
+                        } catch (error) {
+                            console.warn('Error verificando carpetas de Google Drive:', error);
+                            // No mostrar error al usuario, es una verificación en background
+                        }
+                    })();
+                }
             } catch (error: any) {
                 console.error('Error reloading candidates:', error);
                 
@@ -917,24 +973,29 @@ const App: React.FC = () => {
                 const process = state.processes.find(p => p.id === candidateData.processId);
                 const processHasFolder = process?.googleDriveFolderId;
                 
-                if (isGoogleDriveConnected && googleDriveConfig && processHasFolder && !folderId) {
+                if (isGoogleDriveConnected && googleDriveConfig && processHasFolder) {
                     try {
                         hideToastHelper(loadingToastId);
-                        const folderToastId = showToastHelper('Creando carpeta en Google Drive...', 'loading', 0);
+                        const folderToastId = showToastHelper('Verificando carpeta en Google Drive...', 'loading', 0);
                         const { googleDriveService } = await import('./lib/googleDrive');
                         googleDriveService.initialize(googleDriveConfig);
                         
-                        // Crear carpeta del candidato dentro de la carpeta del proceso
-                        const candidateFolderName = `${candidateData.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
-                        const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
+                        // Usar getOrCreateCandidateFolder para evitar duplicados
+                        // Si ya hay una carpeta guardada, la verifica. Si no, busca por nombre o crea una nueva.
+                        const candidateFolderName = candidateData.name || `Candidato_${Date.now()}`;
+                        const folder = await googleDriveService.getOrCreateCandidateFolder(
+                            candidateFolderName,
+                            process.googleDriveFolderId,
+                            folderId // Pasar la carpeta existente si hay una
+                        );
                         folderId = folder.id;
                         folderName = folder.name;
-                        console.log(`✅ Carpeta del candidato creada automáticamente en Google Drive: ${folderName} (dentro de ${process.googleDriveFolderName})`);
+                        console.log(`✅ Carpeta del candidato identificada/creada en Google Drive: ${folderName} (${folderId}) dentro de ${process.googleDriveFolderName}`);
                         hideToastHelper(folderToastId);
                         const savingToastId = showToastHelper('Guardando candidato...', 'loading', 0);
                         hideToastHelper(savingToastId);
                     } catch (error: any) {
-                        console.error('Error creando carpeta del candidato automáticamente:', error);
+                        console.error('Error verificando/creando carpeta del candidato:', error);
                         // Continuar sin carpeta si falla
                     }
                 }

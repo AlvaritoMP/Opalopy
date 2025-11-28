@@ -272,6 +272,126 @@ class GoogleDriveService {
         }
     }
 
+    // Obtener o crear carpeta de candidato (evita duplicados)
+    // Si existe una carpeta guardada, verifica que aún exista. Si no, busca por nombre y usa la primera encontrada.
+    async getOrCreateCandidateFolder(
+        candidateName: string, 
+        processFolderId: string, 
+        existingFolderId?: string
+    ): Promise<GoogleDriveFolder> {
+        if (!this.accessToken) {
+            throw new Error('No hay conexión con Google Drive');
+        }
+
+        try {
+            // Si hay una carpeta guardada, verificar que aún existe
+            if (existingFolderId) {
+                try {
+                    const checkResponse = await fetch(
+                        `https://www.googleapis.com/drive/v3/files/${existingFolderId}?fields=id,name,mimeType,parents,trashed`,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${this.accessToken}`,
+                            },
+                        }
+                    );
+
+                    if (checkResponse.ok) {
+                        const folder = await checkResponse.json();
+                        // Verificar que no esté en papelera y que esté en la carpeta correcta del proceso
+                        if (!folder.trashed && folder.parents && folder.parents.includes(processFolderId)) {
+                            console.log(`✅ Carpeta existente encontrada: ${folder.name} (${folder.id})`);
+                            return folder as GoogleDriveFolder;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Carpeta guardada no existe o fue eliminada, buscando por nombre...', error);
+                }
+            }
+
+            // Buscar carpetas existentes por nombre en la carpeta del proceso
+            const sanitizedName = candidateName.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+            const query = `name='${sanitizedName}' and '${processFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const response = await fetch(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`,
+                    },
+                }
+            );
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    await this.refreshAccessToken();
+                    return this.getOrCreateCandidateFolder(candidateName, processFolderId, existingFolderId);
+                }
+                throw new Error(`Error al buscar carpeta de candidato: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                // Si hay múltiples carpetas, usar la primera (o la que coincida con existingFolderId si existe)
+                const matchingFolder = existingFolderId 
+                    ? data.files.find((f: any) => f.id === existingFolderId)
+                    : null;
+                const folderToUse = matchingFolder || data.files[0];
+                console.log(`✅ Carpeta encontrada por nombre: ${folderToUse.name} (${folderToUse.id})`);
+                return folderToUse as GoogleDriveFolder;
+            }
+
+            // Crear carpeta solo si no existe ninguna
+            console.log(`📁 Creando nueva carpeta para candidato: ${sanitizedName}`);
+            return await this.createFolder(sanitizedName, processFolderId);
+        } catch (error) {
+            console.error('Error obteniendo/creando carpeta de candidato:', error);
+            throw error;
+        }
+    }
+
+    // Verificar si un archivo ya existe en una carpeta (por nombre)
+    async findFileInFolder(fileName: string, folderId: string): Promise<GoogleDriveFile | null> {
+        if (!this.accessToken) {
+            throw new Error('No hay conexión con Google Drive');
+        }
+
+        try {
+            const query = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
+            const response = await fetch(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,webViewLink,webContentLink,size,createdTime,modifiedTime)`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`,
+                    },
+                }
+            );
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    await this.refreshAccessToken();
+                    return this.findFileInFolder(fileName, folderId);
+                }
+                return null; // Si hay error, retornar null para permitir subir
+            }
+
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                // Retornar el archivo más reciente si hay múltiples
+                const sortedFiles = data.files.sort((a: any, b: any) => {
+                    const timeA = new Date(a.modifiedTime || a.createdTime || 0).getTime();
+                    const timeB = new Date(b.modifiedTime || b.createdTime || 0).getTime();
+                    return timeB - timeA; // Más reciente primero
+                });
+                return sortedFiles[0] as GoogleDriveFile;
+            }
+
+            return null;
+        } catch (error) {
+            console.error('Error buscando archivo en carpeta:', error);
+            return null; // Si hay error, permitir subir
+        }
+    }
+
     // Buscar carpetas por nombre (en todo Google Drive)
     async searchFolders(searchQuery: string): Promise<GoogleDriveFolder[]> {
         if (!this.accessToken) {

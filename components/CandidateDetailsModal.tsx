@@ -287,22 +287,25 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 const { googleDriveService } = await import('../lib/googleDrive');
                 googleDriveService.initialize(googleDriveConfig);
                 
-                // PASO 1: Asegurar que el candidato tenga carpeta (crearla si no existe)
+                // PASO 1: Asegurar que el candidato tenga carpeta (usar getOrCreateCandidateFolder para evitar duplicados)
                 let finalFolderId: string;
                 let finalFolderName: string;
                 
-                if (editableCandidate.googleDriveFolderId) {
-                    // El candidato ya tiene carpeta, usarla
-                    finalFolderId = editableCandidate.googleDriveFolderId;
-                    finalFolderName = editableCandidate.googleDriveFolderName || editableCandidate.name || 'Candidato';
-                } else {
-                    // Crear carpeta del candidato dentro de la carpeta del proceso
-                    const candidateFolderName = `${editableCandidate.name || `Candidato_${Date.now()}`}`.replace(/[^a-zA-Z0-9_\- ]/g, '_');
-                    const folder = await googleDriveService.createFolder(candidateFolderName, process.googleDriveFolderId);
-                    finalFolderId = folder.id;
-                    finalFolderName = folder.name;
-                    
-                    // Actualizar el candidato con la nueva carpeta ANTES de subir el archivo
+                // Usar getOrCreateCandidateFolder que:
+                // 1. Verifica si la carpeta guardada aún existe
+                // 2. Si no existe, busca por nombre
+                // 3. Si no encuentra ninguna, crea una nueva
+                const candidateFolderName = editableCandidate.name || `Candidato_${Date.now()}`;
+                const folder = await googleDriveService.getOrCreateCandidateFolder(
+                    candidateFolderName,
+                    process.googleDriveFolderId,
+                    editableCandidate.googleDriveFolderId // Pasar la carpeta existente si hay una
+                );
+                finalFolderId = folder.id;
+                finalFolderName = folder.name;
+                
+                // Si la carpeta encontrada es diferente a la guardada, actualizar el candidato
+                if (editableCandidate.googleDriveFolderId !== folder.id) {
                     const candidateWithFolder = {
                         ...editableCandidate,
                         googleDriveFolderId: folder.id,
@@ -310,15 +313,25 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                     };
                     setEditableCandidate(candidateWithFolder);
                     await actions.updateCandidate(candidateWithFolder, state.currentUser?.name);
-                    console.log(`✅ Carpeta del candidato creada: ${folder.name} (dentro de ${process.googleDriveFolderName})`);
+                    console.log(`✅ Carpeta del candidato actualizada: ${folder.name} (${folder.id})`);
                 }
                 
-                // PASO 2: Subir archivo a Google Drive en la carpeta del candidato
-                const uploadedFile = await googleDriveService.uploadFile(
-                    file,
-                    finalFolderId,
-                    file.name
-                );
+                // PASO 2: Verificar si el archivo ya existe antes de subir (evitar duplicados)
+                const existingFile = await googleDriveService.findFileInFolder(file.name, finalFolderId);
+                let uploadedFile;
+                
+                if (existingFile) {
+                    // Si el archivo ya existe, usar el existente
+                    console.log(`⚠️ Archivo ya existe en Drive: ${file.name}, usando el existente`);
+                    uploadedFile = existingFile;
+                } else {
+                    // Subir archivo a Google Drive en la carpeta del candidato
+                    uploadedFile = await googleDriveService.uploadFile(
+                        file,
+                        finalFolderId,
+                        file.name
+                    );
+                }
                 
                 // Crear attachment con URL de visualización de Google Drive
                 // Generar un UUID para el attachment (la tabla requiere UUID, no el ID de Google Drive)
