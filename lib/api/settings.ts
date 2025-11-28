@@ -96,7 +96,7 @@ export const settingsApi = {
         console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
         
         // Separar campos opcionales que pueden no existir en el esquema
-        const { candidate_sources, provinces, districts, ...standardFields } = mergedDbData;
+        const { candidate_sources, provinces, districts, powered_by_logo_url, ...standardFields } = mergedDbData;
         
         // Primero actualizar campos estándar
         const { error: standardError } = await supabase
@@ -114,6 +114,7 @@ export const settingsApi = {
         if (candidate_sources !== undefined) optionalFields.candidate_sources = candidate_sources;
         if (provinces !== undefined) optionalFields.provinces = provinces;
         if (districts !== undefined) optionalFields.districts = districts;
+        if (powered_by_logo_url !== undefined) optionalFields.powered_by_logo_url = powered_by_logo_url;
         
         if (Object.keys(optionalFields).length > 0) {
             const { error: optionalError } = await supabase
@@ -123,8 +124,8 @@ export const settingsApi = {
             
             if (optionalError) {
                 const errorMsg = optionalError.message || '';
-                if (errorMsg.includes('schema cache') || errorMsg.includes("Could not find") || errorMsg.includes("column")) {
-                    console.warn('⚠️ Algunas columnas opcionales (candidate_sources, provinces, districts) no existen en la base de datos. Por favor, ejecuta la migración SQL. Error:', optionalError.message);
+                if (errorMsg.includes('schema cache') || errorMsg.includes("Could not find") || errorMsg.includes("column") || errorMsg.includes("powered_by_logo_url")) {
+                    console.warn('⚠️ Algunas columnas opcionales no existen en la base de datos. Por favor, ejecuta la migración SQL: MIGRATION_ADD_POWERED_BY_LOGO.sql. Error:', optionalError.message);
                     // No lanzar error, permitir que continúe
                 } else {
                     console.error('Error updating optional settings fields:', optionalError);
