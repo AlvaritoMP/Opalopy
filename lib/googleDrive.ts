@@ -310,9 +310,10 @@ class GoogleDriveService {
             }
 
             // Buscar carpetas existentes por nombre en la carpeta del proceso
+            // Primero intentar búsqueda exacta
             const sanitizedName = candidateName.replace(/[^a-zA-Z0-9_\- ]/g, '_');
-            const query = `name='${sanitizedName}' and '${processFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-            const response = await fetch(
+            let query = `name='${sanitizedName}' and '${processFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            let response = await fetch(
                 `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)`,
                 {
                     headers: {
@@ -329,13 +330,79 @@ class GoogleDriveService {
                 throw new Error(`Error al buscar carpeta de candidato: ${response.statusText}`);
             }
 
-            const data = await response.json();
+            let data = await response.json();
+            
+            // Si no encontró con búsqueda exacta, intentar búsqueda flexible (contiene el nombre)
+            if (!data.files || data.files.length === 0) {
+                // Extraer palabras clave del nombre (primera palabra o primeras dos palabras)
+                const nameWords = candidateName.trim().split(/\s+/).filter(w => w.length > 2);
+                if (nameWords.length > 0) {
+                    const searchTerm = nameWords[0]; // Usar la primera palabra significativa
+                    query = `name contains '${searchTerm}' and '${processFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+                    response = await fetch(
+                        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)`,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${this.accessToken}`,
+                            },
+                        }
+                    );
+                    
+                    if (response.ok) {
+                        data = await response.json();
+                    }
+                }
+            }
+
             if (data.files && data.files.length > 0) {
-                // Si hay múltiples carpetas, usar la primera (o la que coincida con existingFolderId si existe)
+                // Si hay múltiples carpetas, usar la que tenga más archivos o sea más reciente
+                // Primero intentar encontrar la que coincida con existingFolderId
                 const matchingFolder = existingFolderId 
                     ? data.files.find((f: any) => f.id === existingFolderId)
                     : null;
-                const folderToUse = matchingFolder || data.files[0];
+                
+                if (matchingFolder) {
+                    console.log(`✅ Carpeta encontrada (coincide con guardada): ${matchingFolder.name} (${matchingFolder.id})`);
+                    return matchingFolder as GoogleDriveFolder;
+                }
+                
+                // Si hay múltiples, buscar la que tenga más contenido (archivos)
+                if (data.files.length > 1) {
+                    console.log(`⚠️ Múltiples carpetas encontradas para "${candidateName}", buscando la que tenga más archivos...`);
+                    const foldersWithContent = await Promise.all(
+                        data.files.map(async (folder: any) => {
+                            try {
+                                const filesResponse = await fetch(
+                                    `https://www.googleapis.com/drive/v3/files?q='${folder.id}' in parents and trashed=false&fields=files(id)`,
+                                    {
+                                        headers: {
+                                            'Authorization': `Bearer ${this.accessToken}`,
+                                        },
+                                    }
+                                );
+                                if (filesResponse.ok) {
+                                    const filesData = await filesResponse.json();
+                                    return {
+                                        folder,
+                                        fileCount: filesData.files?.length || 0
+                                    };
+                                }
+                            } catch (error) {
+                                console.warn(`Error contando archivos en carpeta ${folder.name}:`, error);
+                            }
+                            return { folder, fileCount: 0 };
+                        })
+                    );
+                    
+                    // Ordenar por cantidad de archivos (mayor primero) y usar la primera
+                    foldersWithContent.sort((a, b) => b.fileCount - a.fileCount);
+                    const bestFolder = foldersWithContent[0].folder;
+                    console.log(`✅ Carpeta seleccionada (tiene ${foldersWithContent[0].fileCount} archivos): ${bestFolder.name} (${bestFolder.id})`);
+                    return bestFolder as GoogleDriveFolder;
+                }
+                
+                // Si solo hay una, usarla
+                const folderToUse = data.files[0];
                 console.log(`✅ Carpeta encontrada por nombre: ${folderToUse.name} (${folderToUse.id})`);
                 return folderToUse as GoogleDriveFolder;
             }
@@ -345,6 +412,39 @@ class GoogleDriveService {
             return await this.createFolder(sanitizedName, processFolderId);
         } catch (error) {
             console.error('Error obteniendo/creando carpeta de candidato:', error);
+            throw error;
+        }
+    }
+
+    // Listar todos los archivos en una carpeta
+    async listFilesInFolder(folderId: string): Promise<GoogleDriveFile[]> {
+        if (!this.accessToken) {
+            throw new Error('No hay conexión con Google Drive');
+        }
+
+        try {
+            const query = `'${folderId}' in parents and trashed=false`;
+            const response = await fetch(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,webViewLink,webContentLink,size,createdTime,modifiedTime)&orderBy=modifiedTime desc`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.accessToken}`,
+                    },
+                }
+            );
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    await this.refreshAccessToken();
+                    return this.listFilesInFolder(folderId);
+                }
+                throw new Error(`Error al listar archivos: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            return (data.files || []) as GoogleDriveFile[];
+        } catch (error) {
+            console.error('Error listando archivos en carpeta:', error);
             throw error;
         }
     }

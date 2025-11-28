@@ -388,12 +388,25 @@ export const candidatesApi = {
         return allCandidates.filter(c => c.processId === processId);
     },
 
+    // Obtener solo el conteo de attachments de un candidato (sin cargar los datos)
+    async getAttachmentsCount(candidateId: string): Promise<number> {
+        const { count, error } = await supabase
+            .from('attachments')
+            .select('*', { count: 'exact', head: true })
+            .eq('candidate_id', candidateId)
+            .is('comment_id', null); // Solo attachments del candidato, no de comentarios
+        
+        if (error) throw error;
+        return count || 0;
+    },
+
     // Cargar attachments de un candidato específico (lazy loading para reducir egress)
     async getAttachments(candidateId: string): Promise<Attachment[]> {
         const { data, error } = await supabase
             .from('attachments')
             .select('id, candidate_id, name, url, type, size, category, uploaded_at')
             .eq('candidate_id', candidateId)
+            .is('comment_id', null) // Solo attachments del candidato, no de comentarios
             .order('uploaded_at', { ascending: false });
         
         if (error) throw error;

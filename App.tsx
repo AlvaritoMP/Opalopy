@@ -830,22 +830,20 @@ const App: React.FC = () => {
                             
                             // Verificar carpetas de candidatos que tienen proceso con carpeta configurada
                             for (const candidate of candidates) {
-                                if (!candidate.googleDriveFolderId) continue;
-                                
                                 const process = state.processes.find(p => p.id === candidate.processId);
                                 if (!process?.googleDriveFolderId) continue;
                                 
                                 try {
-                                    // Verificar si la carpeta guardada aún existe
+                                    // Buscar carpeta (incluso si no tiene una guardada, para encontrar carpetas huérfanas)
                                     const folder = await googleDriveService.getOrCreateCandidateFolder(
                                         candidate.name,
                                         process.googleDriveFolderId,
-                                        candidate.googleDriveFolderId
+                                        candidate.googleDriveFolderId // Puede ser undefined
                                     );
                                     
-                                    // Si la carpeta encontrada es diferente, actualizar el candidato
-                                    if (folder.id !== candidate.googleDriveFolderId) {
-                                        console.log(`🔄 Actualizando carpeta de candidato ${candidate.name}: ${candidate.googleDriveFolderId} → ${folder.id}`);
+                                    // Si el candidato no tenía carpeta o la carpeta encontrada es diferente, actualizar
+                                    if (!candidate.googleDriveFolderId || folder.id !== candidate.googleDriveFolderId) {
+                                        console.log(`🔄 ${!candidate.googleDriveFolderId ? 'Asociando' : 'Actualizando'} carpeta de candidato ${candidate.name}: ${candidate.googleDriveFolderId || '(sin carpeta)'} → ${folder.id}`);
                                         await candidatesApi.update(candidate.id, {
                                             ...candidate,
                                             googleDriveFolderId: folder.id,

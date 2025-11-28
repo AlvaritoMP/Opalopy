@@ -111,6 +111,111 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             }
         }
     }, [state.candidates, initialCandidate.id, isEditing]);
+
+    // Cargar conteo de attachments al abrir el modal (sin cargar los documentos)
+    React.useEffect(() => {
+        const loadAttachmentsCount = async () => {
+            try {
+                const { candidatesApi } = await import('../lib/api/candidates');
+                const count = await candidatesApi.getAttachmentsCount(initialCandidate.id);
+                setAttachmentsCount(count);
+            } catch (error) {
+                console.warn('Error cargando conteo de attachments:', error);
+                // Si falla, usar el conteo de attachments existentes si hay
+                if (initialCandidate.attachments && initialCandidate.attachments.length > 0) {
+                    setAttachmentsCount(initialCandidate.attachments.length);
+                }
+            }
+        };
+        loadAttachmentsCount();
+    }, [initialCandidate.id]);
+
+    // Sincronizar archivos de Google Drive con attachments al abrir el modal
+    React.useEffect(() => {
+        const syncDriveFiles = async () => {
+            const googleDriveConfig = state.settings?.googleDrive;
+            const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
+            if (!isGoogleDriveConnected || !googleDriveConfig) return;
+
+            const currentCandidate = state.candidates.find(c => c.id === initialCandidate.id);
+            if (!currentCandidate) return;
+
+            const process = state.processes.find(p => p.id === currentCandidate.processId);
+            if (!process?.googleDriveFolderId) return;
+
+            try {
+                const { googleDriveService } = await import('../lib/googleDrive');
+                googleDriveService.initialize(googleDriveConfig);
+
+                // Verificar y corregir la carpeta del candidato
+                const folder = await googleDriveService.getOrCreateCandidateFolder(
+                    currentCandidate.name,
+                    process.googleDriveFolderId,
+                    currentCandidate.googleDriveFolderId
+                );
+
+                // Si la carpeta cambió, actualizar el candidato
+                if (folder.id !== currentCandidate.googleDriveFolderId) {
+                    await actions.updateCandidate({
+                        ...currentCandidate,
+                        googleDriveFolderId: folder.id,
+                        googleDriveFolderName: folder.name,
+                    }, state.currentUser?.name);
+                    return; // El useEffect se ejecutará de nuevo cuando se actualice el candidato
+                }
+
+                // Si no hay carpeta, no hacer nada
+                if (!folder.id) return;
+
+                // Listar archivos de la carpeta de Google Drive
+                const driveFiles = await googleDriveService.listFilesInFolder(folder.id);
+                
+                // Obtener los IDs de Google Drive de los attachments actuales (extraer de la URL)
+                const existingDriveFileIds = new Set(
+                    (currentCandidate.attachments || [])
+                        .map(att => {
+                            // Extraer ID de Google Drive de la URL (formato: .../file/d/{id}/...)
+                            const match = att.url?.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+                            return match ? match[1] : null;
+                        })
+                        .filter(id => id !== null)
+                );
+
+                // Encontrar archivos de Drive que no están en los attachments
+                const newFiles = driveFiles.filter(file => !existingDriveFileIds.has(file.id));
+
+                // Si hay archivos nuevos, agregarlos como attachments
+                if (newFiles.length > 0) {
+                    const newAttachments: Attachment[] = newFiles.map(file => ({
+                        id: `att-${file.id}-${Date.now()}`,
+                        name: file.name,
+                        url: file.webViewLink || `https://drive.google.com/file/d/${file.id}/preview`,
+                        type: file.mimeType || 'application/octet-stream',
+                        size: file.size ? parseInt(file.size) : 0,
+                        uploadedAt: file.createdTime || new Date().toISOString(),
+                    }));
+
+                    const updatedCandidate = {
+                        ...currentCandidate,
+                        attachments: [...(currentCandidate.attachments || []), ...newAttachments],
+                    };
+
+                    await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+                    console.log(`✅ Sincronizados ${newFiles.length} archivos de Google Drive para ${currentCandidate.name}`);
+                }
+            } catch (error) {
+                console.warn('Error sincronizando archivos de Google Drive:', error);
+                // No mostrar error al usuario, es una sincronización en background
+            }
+        };
+
+        // Ejecutar después de un pequeño delay para asegurar que el modal esté completamente cargado
+        const timer = setTimeout(() => {
+            syncDriveFiles();
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [initialCandidate.id, state.settings?.googleDrive, state.candidates, state.processes, actions, state.currentUser?.name]);
     
     const [previewFile, setPreviewFile] = useState<Attachment | null>(initialCandidate.attachments?.[0] || null);
     const [activeTab, setActiveTab] = useState<'details' | 'history' | 'schedule' | 'comments' | 'documents'>('details');
@@ -124,6 +229,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [isUploading, setIsUploading] = useState(false);
     const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
+    const [attachmentsLoaded, setAttachmentsLoaded] = useState(false);
+    const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
+    const [attachmentsCount, setAttachmentsCount] = useState<number | null>(null);
 
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -363,6 +471,12 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 
                 // Actualizar estado local primero para reflejo inmediato
                 setEditableCandidate(updatedCandidate);
+                // Actualizar contador de attachments
+                setAttachmentsCount(prev => (prev !== null ? prev + 1 : 1));
+                // Si los attachments ya están cargados, asegurar que se muestren
+                if (attachmentsLoaded) {
+                    setEditableCandidate(updatedCandidate);
+                }
                 
                 // Luego actualizar en la base de datos
                 await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
@@ -492,6 +606,8 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         const updatedAttachments = editableCandidate.attachments.filter(att => att.id !== id);
         const updatedCandidate = { ...editableCandidate, attachments: updatedAttachments };
         setEditableCandidate(updatedCandidate);
+        // Actualizar contador de attachments
+        setAttachmentsCount(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
         await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
         if(previewFile?.id === id) setPreviewFile(null);
     };
@@ -972,37 +1088,82 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                 
                                 <div className="flex flex-col h-full max-w-full">
                                     <h3 className="font-semibold text-gray-700 mb-2">
-                                        Adjuntos {currentCandidate.attachments && currentCandidate.attachments.length > 0 && `(${currentCandidate.attachments.length})`}
+                                        Adjuntos {attachmentsCount !== null && `(${attachmentsCount})`}
                                     </h3>
-                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                        {currentCandidate.attachments && currentCandidate.attachments.length > 0 ? currentCandidate.attachments.map(att => (
-                                            <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-white hover:bg-gray-50">
-                                                <div className="flex items-center overflow-hidden flex-1 min-w-0">
-                                                    <FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" />
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-medium text-gray-800 truncate">{att.name}</p>
-                                                        {att.url && (
-                                                            <a 
-                                                                href={att.url} 
-                                                                target="_blank" 
-                                                                rel="noopener noreferrer"
-                                                                className="text-xs text-primary-600 hover:underline truncate block"
-                                                            >
-                                                                {att.url.startsWith('https://drive.google.com') ? 'Ver en Google Drive' : 'Ver documento'}
-                                                            </a>
-                                                        )}
+                                    {!attachmentsLoaded ? (
+                                        <div className="space-y-2">
+                                            {attachmentsCount !== null && attachmentsCount > 0 ? (
+                                                <div className="p-4 border rounded-md bg-gray-50 text-center">
+                                                    <FileText className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                                                    <p className="text-sm text-gray-600 mb-3">
+                                                        {attachmentsCount} {attachmentsCount === 1 ? 'documento' : 'documentos'} disponible{attachmentsCount === 1 ? '' : 's'}
+                                                    </p>
+                                                    <button
+                                                        onClick={async () => {
+                                                            setIsLoadingAttachments(true);
+                                                            try {
+                                                                const { candidatesApi } = await import('../lib/api/candidates');
+                                                                const attachments = await candidatesApi.getAttachments(currentCandidate.id);
+                                                                setEditableCandidate(prev => ({
+                                                                    ...prev,
+                                                                    attachments: attachments
+                                                                }));
+                                                                setAttachmentsLoaded(true);
+                                                                if (attachments.length > 0 && !previewFile) {
+                                                                    setPreviewFile(attachments[0]);
+                                                                }
+                                                            } catch (error) {
+                                                                console.error('Error cargando attachments:', error);
+                                                                actions.showToast('Error al cargar documentos', 'error', 3000);
+                                                            } finally {
+                                                                setIsLoadingAttachments(false);
+                                                            }
+                                                        }}
+                                                        disabled={isLoadingAttachments}
+                                                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                                                            isLoadingAttachments
+                                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                                : 'bg-primary-600 text-white hover:bg-primary-700'
+                                                        }`}
+                                                    >
+                                                        {isLoadingAttachments ? 'Cargando...' : 'Ver documentos'}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-gray-500 text-center py-4">No hay documentos adjuntos</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                            {editableCandidate.attachments && editableCandidate.attachments.length > 0 ? editableCandidate.attachments.map(att => (
+                                                <div key={att.id} className="flex items-center justify-between p-2 rounded-md border bg-white hover:bg-gray-50">
+                                                    <div className="flex items-center overflow-hidden flex-1 min-w-0">
+                                                        <FileText className="w-5 h-5 mr-3 text-gray-500 flex-shrink-0" />
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-gray-800 truncate">{att.name}</p>
+                                                            {att.url && (
+                                                                <a 
+                                                                    href={att.url} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-xs text-primary-600 hover:underline truncate block"
+                                                                >
+                                                                    {att.url.startsWith('https://drive.google.com') ? 'Ver en Google Drive' : 'Ver documento'}
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center space-x-1 flex-shrink-0">
+                                                        <button onClick={() => setPreviewFile(att)} className="p-1 rounded-md hover:bg-gray-200" title="Previsualizar"><Eye className="w-4 h-4 text-gray-600" /></button>
+                                                        <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded-md hover:bg-gray-200" title="Abrir"><Download className="w-4 h-4 text-gray-600" /></a>
+                                                        <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center space-x-1 flex-shrink-0">
-                                                    <button onClick={() => setPreviewFile(att)} className="p-1 rounded-md hover:bg-gray-200" title="Previsualizar"><Eye className="w-4 h-4 text-gray-600" /></button>
-                                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded-md hover:bg-gray-200" title="Abrir"><Download className="w-4 h-4 text-gray-600" /></a>
-                                                    <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
-                                                </div>
-                                            </div>
-                                        )) : (
-                                            <p className="text-sm text-gray-500 text-center py-4">No hay documentos adjuntos</p>
-                                        )}
-                                    </div>
+                                            )) : (
+                                                <p className="text-sm text-gray-500 text-center py-4">No hay documentos adjuntos</p>
+                                            )}
+                                        </div>
+                                    )}
                                     <input type="file" ref={attachmentInputRef} onChange={handleAttachmentUpload} className="hidden" />
                                     <div className="mt-2 space-y-2">
                                         <button 
