@@ -70,13 +70,14 @@ function processToDb(process: Partial<Process>): any {
 export const processesApi = {
     // Obtener todos los procesos con sus stages y categorías
     // OPTIMIZADO: Carga todas las relaciones en batch en lugar de N+1 queries
-    async getAll(): Promise<Process[]> {
-        // 1. Cargar todos los procesos
+    // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
+    async getAll(includeAttachments: boolean = false): Promise<Process[]> {
+        // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
         const { data: processes, error } = await supabase
             .from('processes')
-            .select('*')
+            .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, created_at')
             .order('created_at', { ascending: false })
-            .limit(1000); // Limitar a 1000 procesos para evitar timeouts
+            .limit(200); // Reducir límite para reducir egress
         
         if (error) throw error;
         if (!processes || processes.length === 0) return [];
@@ -84,23 +85,33 @@ export const processesApi = {
         // 2. Obtener todos los IDs de procesos
         const processIds = processes.map(p => p.id);
 
-        // 3. Cargar todas las relaciones en batch (solo 3 consultas en total)
-        const [stagesResult, categoriesResult, attachmentsResult] = await Promise.all([
+        // 3. Cargar todas las relaciones en batch (solo campos necesarios)
+        const queries: Promise<any>[] = [
             supabase
                 .from('stages')
-                .select('*')
+                .select('id, process_id, name, order_index, required_documents, is_critical')
                 .in('process_id', processIds)
                 .order('order_index'),
             supabase
                 .from('document_categories')
-                .select('*')
+                .select('id, process_id, name, description, required')
                 .in('process_id', processIds),
-            supabase
-                .from('attachments')
-                .select('*')
-                .in('process_id', processIds)
-                .is('candidate_id', null),
-        ]);
+        ];
+
+        // Solo cargar attachments si se solicitan explícitamente (lazy loading)
+        if (includeAttachments) {
+            queries.push(
+                supabase
+                    .from('attachments')
+                    .select('id, process_id, name, url, type, size, category, uploaded_at')
+                    .in('process_id', processIds)
+                    .is('candidate_id', null)
+            );
+        } else {
+            queries.push(Promise.resolve({ data: [] }));
+        }
+
+        const [stagesResult, categoriesResult, attachmentsResult] = await Promise.all(queries);
 
         // 4. Agrupar relaciones por process_id en memoria
         const stagesByProcessId = new Map<string, any[]>();

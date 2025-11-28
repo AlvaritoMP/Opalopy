@@ -169,12 +169,14 @@ function candidateToDb(candidate: Partial<Candidate>): any {
 export const candidatesApi = {
     // Obtener todos los candidatos
     // OPTIMIZADO: Carga todas las relaciones en batch en lugar de N+1 queries
-    async getAll(includeArchived: boolean = false): Promise<Candidate[]> {
+    // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments/comments se cargan lazy
+    async getAll(includeArchived: boolean = false, includeRelations: boolean = true): Promise<Candidate[]> {
+        // Seleccionar solo campos básicos para reducir egress
         let query = supabase
             .from('candidates')
-            .select('*')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .order('created_at', { ascending: false })
-            .limit(1000); // Limitar a 1000 candidatos para evitar timeouts
+            .limit(200); // Reducir límite para reducir egress
         
         if (!includeArchived) {
             query = query.eq('archived', false);
@@ -184,42 +186,71 @@ export const candidatesApi = {
         if (error) throw error;
         if (!data || data.length === 0) return [];
 
+        // Si no se solicitan relaciones, retornar solo datos básicos (reduce egress significativamente)
+        if (!includeRelations) {
+            return data.map(dbCandidate => ({
+                id: dbCandidate.id,
+                name: dbCandidate.name,
+                email: dbCandidate.email,
+                phone: dbCandidate.phone,
+                phone2: dbCandidate.phone2,
+                processId: dbCandidate.process_id,
+                stageId: dbCandidate.stage_id,
+                description: dbCandidate.description,
+                history: [],
+                avatarUrl: dbCandidate.avatar_url,
+                attachments: [],
+                source: dbCandidate.source,
+                salaryExpectation: dbCandidate.salary_expectation,
+                agreedSalary: dbCandidate.agreed_salary,
+                agreedSalaryInWords: dbCandidate.agreed_salary_in_words,
+                age: dbCandidate.age,
+                dni: dbCandidate.dni,
+                linkedinUrl: dbCandidate.linkedin_url,
+                address: dbCandidate.address,
+                province: dbCandidate.province,
+                district: dbCandidate.district,
+                postIts: [],
+                comments: [],
+                archived: dbCandidate.archived || false,
+                archivedAt: dbCandidate.archived_at,
+                hireDate: dbCandidate.hire_date,
+                googleDriveFolderId: dbCandidate.google_drive_folder_id,
+                googleDriveFolderName: dbCandidate.google_drive_folder_name,
+                visibleToClients: dbCandidate.visible_to_clients ?? false,
+                offerAcceptedDate: dbCandidate.offer_accepted_date,
+                applicationStartedDate: dbCandidate.application_started_date,
+                applicationCompletedDate: dbCandidate.application_completed_date,
+                criticalStageReviewedAt: dbCandidate.critical_stage_reviewed_at,
+            }));
+        }
+
         // Obtener todos los IDs de candidatos
         const candidateIds = data.map(c => c.id);
 
-        // Cargar todas las relaciones en batch (solo 4-5 consultas en total)
-        const [historyResult, postItsResult, commentsResult, attachmentsResult] = await Promise.all([
+        // Cargar relaciones en batch (solo campos necesarios, sin attachments pesados)
+        const [historyResult, postItsResult, commentsResult] = await Promise.all([
             supabase
                 .from('candidate_history')
-                .select('*')
+                .select('id, candidate_id, stage_id, moved_at, moved_by')
                 .in('candidate_id', candidateIds)
                 .order('moved_at', { ascending: true }),
             supabase
                 .from('post_its')
-                .select('*')
+                .select('id, candidate_id, text, color, created_by, created_at')
                 .in('candidate_id', candidateIds)
                 .order('created_at', { ascending: false }),
             supabase
                 .from('comments')
-                .select('*')
+                .select('id, candidate_id, text, user_id, created_at')
                 .in('candidate_id', candidateIds)
                 .order('created_at', { ascending: false }),
-            supabase
-                .from('attachments')
-                .select('*')
-                .in('candidate_id', candidateIds)
-                .order('candidate_id, uploaded_at', { ascending: false }),
         ]);
 
-        // Obtener IDs de comentarios para cargar sus attachments
-        const commentIds = (commentsResult.data || []).map(c => c.id);
-        let commentAttachmentsResult: any = { data: [] };
-        if (commentIds.length > 0) {
-            commentAttachmentsResult = await supabase
-                .from('attachments')
-                .select('*')
-                .in('comment_id', commentIds);
-        }
+        // NO cargar attachments aquí - se cargan lazy cuando se necesitan (reduce egress significativamente)
+        // Attachments se pueden cargar con getById() o con un método específico getAttachments()
+        const attachmentsResult = { data: [] };
+        const commentAttachmentsResult = { data: [] };
 
         // Agrupar relaciones por candidate_id en memoria
         const historyByCandidateId = new Map<string, any[]>();
@@ -307,15 +338,7 @@ export const candidatesApi = {
                     movedBy: h.moved_by || 'System',
                 })),
                 avatarUrl: dbCandidate.avatar_url,
-                attachments: attachments.map(att => ({
-                    id: att.id,
-                    name: att.name,
-                    url: att.url,
-                    type: att.type,
-                    size: att.size,
-                    category: att.category,
-                    uploadedAt: att.uploaded_at,
-                })),
+                attachments: [], // Attachments se cargan lazy para reducir egress
                 source: dbCandidate.source,
                 salaryExpectation: dbCandidate.salary_expectation,
                 agreedSalary: dbCandidate.agreed_salary,
@@ -349,29 +372,41 @@ export const candidatesApi = {
     },
 
     // Obtener candidatos por proceso
-    async getByProcess(processId: string, includeArchived: boolean = false): Promise<Candidate[]> {
-        let query = supabase
-            .from('candidates')
-            .select('*')
-            .eq('process_id', processId)
-            .order('created_at', { ascending: false });
-        
-        if (!includeArchived) {
-            query = query.eq('archived', false);
-        }
+    // OPTIMIZADO EGRESS: Usa getAll con filtro en memoria o consulta optimizada
+    async getByProcess(processId: string, includeArchived: boolean = false, includeRelations: boolean = false): Promise<Candidate[]> {
+        // Usar getAll optimizado y filtrar en memoria (más eficiente para egress)
+        const allCandidates = await this.getAll(includeArchived, includeRelations);
+        return allCandidates.filter(c => c.processId === processId);
+    },
 
-        const { data, error } = await query;
+    // Cargar attachments de un candidato específico (lazy loading para reducir egress)
+    async getAttachments(candidateId: string): Promise<Attachment[]> {
+        const { data, error } = await supabase
+            .from('attachments')
+            .select('id, candidate_id, name, url, type, size, category, uploaded_at')
+            .eq('candidate_id', candidateId)
+            .order('uploaded_at', { ascending: false });
+        
         if (error) throw error;
         if (!data) return [];
 
-        return Promise.all(data.map(dbToCandidate));
+        return data.map(att => ({
+            id: att.id,
+            name: att.name,
+            url: att.url,
+            type: att.type,
+            size: att.size,
+            category: att.category,
+            uploadedAt: att.uploaded_at,
+        }));
     },
 
-    // Obtener un candidato por ID
+    // Obtener un candidato por ID (con todas las relaciones - para vista de detalle)
+    // OPTIMIZADO EGRESS: Selecciona solo campos necesarios
     async getById(id: string): Promise<Candidate | null> {
         const { data, error } = await supabase
             .from('candidates')
-            .select('*')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('id', id)
             .single();
         
