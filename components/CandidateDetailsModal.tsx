@@ -7,6 +7,7 @@ import { ChangeProcessModal } from './ChangeProcessModal';
 import { CandidateCommentsModal } from './CandidateCommentsModal';
 import { DocumentChecklist } from './DocumentChecklist';
 import { SearchableSelect } from './SearchableSelect';
+import { DiscardCandidateModal } from './DiscardCandidateModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -53,10 +54,15 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [editableCandidate, setEditableCandidate] = useState<Candidate>(initialCandidate);
     
     // Marcar como revisado cuando se abre el modal y el candidato está en etapa crítica
+    // SOLO si el usuario es cliente (client), no para admin/recruiter
     React.useEffect(() => {
         const checkAndMarkAsReviewed = async () => {
             const currentCandidate = state.candidates.find(c => c.id === initialCandidate.id);
             if (!currentCandidate) return;
+            
+            // Solo marcar si el usuario es cliente
+            const userRole = state.currentUser?.role;
+            if (userRole !== 'client') return; // Solo clientes pueden marcar como revisado
             
             // Solo marcar si no ha sido revisado antes
             if (currentCandidate.criticalStageReviewedAt) return;
@@ -67,7 +73,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             const currentStage = process.stages.find(s => s.id === currentCandidate.stageId);
             const isInCriticalStage = currentStage?.isCritical || false;
             
-            // Si está en etapa crítica y no ha sido revisado aún, marcarlo como revisado
+            // Si está en etapa crítica y no ha sido revisado aún, marcarlo como revisado (solo para clientes)
             if (isInCriticalStage) {
                 try {
                     await actions.updateCandidate({
@@ -88,7 +94,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         }, 100);
         
         return () => clearTimeout(timer);
-    }, [initialCandidate.id]); // Solo cuando cambia el ID del candidato (nuevo modal)
+    }, [initialCandidate.id, state.currentUser?.role]); // Solo cuando cambia el ID del candidato o el rol del usuario
     
     // Actualizar editableCandidate cuando el candidato se actualiza en el estado
     React.useEffect(() => {
@@ -662,6 +668,15 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                     {isArchived ? <Undo2 className="w-4 h-4 md:mr-2" /> : <Archive className="w-4 h-4 md:mr-2" />}
                                     <span className="hidden sm:inline">{isArchived ? 'Restaurar' : 'Archivar'}</span>
                                 </button>
+                                {!isArchived && (
+                                    <button
+                                        onClick={() => setIsDiscardModalOpen(true)}
+                                        className="flex items-center px-2 md:px-3 py-1.5 border border-red-200 text-red-700 rounded-md text-xs md:text-sm font-medium hover:bg-red-50"
+                                    >
+                                        <X className="w-4 h-4 md:mr-2" />
+                                        <span className="hidden sm:inline">Descartar</span>
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleDeleteCandidate}
                                     className="flex items-center px-2 md:px-3 py-1.5 bg-red-600 text-white border border-red-600 rounded-md text-xs md:text-sm font-medium hover:bg-red-700"
@@ -1273,6 +1288,18 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 </div>
             </div>
         )}
+            {isDiscardModalOpen && (
+                <DiscardCandidateModal
+                    candidateId={initialCandidate.id}
+                    candidateName={initialCandidate.name}
+                    onClose={() => setIsDiscardModalOpen(false)}
+                    onDiscard={async (reason) => {
+                        await actions.discardCandidate(initialCandidate.id, reason);
+                        setIsDiscardModalOpen(false);
+                        onClose(); // Cerrar el modal de detalles después de descartar
+                    }}
+                />
+            )}
         </>
     );
 };

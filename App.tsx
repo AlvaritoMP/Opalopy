@@ -67,6 +67,8 @@ interface AppActions {
     deleteComment: (candidateId: string, commentId: string) => Promise<void>;
     archiveCandidate: (candidateId: string) => Promise<void>;
     restoreCandidate: (candidateId: string) => Promise<void>;
+    discardCandidate: (candidateId: string, reason: string) => Promise<void>;
+    loadArchivedCandidates: () => Promise<void>;
     setView: (type: string, payload?: any) => void;
     showToast: (message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => string;
     hideToast: (id: string) => void;
@@ -997,7 +999,19 @@ const App: React.FC = () => {
         updateCandidate: async (candidateData, movedBy) => {
             const loadingToastId = showToastHelper('Guardando cambios del candidato...', 'loading', 0);
             try {
-                const updated = await candidatesApi.update(candidateData.id, candidateData, movedBy || state.currentUser?.id);
+                // Si se está cambiando la etapa (stageId), limpiar criticalStageReviewedAt
+                const currentCandidate = state.candidates.find(c => c.id === candidateData.id);
+                let updatedCandidateData = candidateData;
+                
+                if (currentCandidate && candidateData.stageId !== currentCandidate.stageId) {
+                    // El candidato se movió a otra etapa, limpiar la marca de revisado
+                    updatedCandidateData = {
+                        ...candidateData,
+                        criticalStageReviewedAt: undefined
+                    };
+                }
+                
+                const updated = await candidatesApi.update(updatedCandidateData.id, updatedCandidateData, movedBy || state.currentUser?.id);
                 setState(s => ({ ...s, candidates: s.candidates.map(c => c.id === candidateData.id ? updated : c) }));
                 hideToastHelper(loadingToastId);
                 showToastHelper('Candidato actualizado exitosamente', 'success');
@@ -1289,6 +1303,74 @@ const App: React.FC = () => {
                 
                 // NO actualizar estado local si falla en BD
                 throw error;
+            }
+        },
+        discardCandidate: async (candidateId, reason) => {
+            const loadingToastId = showToastHelper('Descartando candidato...', 'loading', 0);
+            try {
+                const candidate = state.candidates.find(c => c.id === candidateId);
+                if (!candidate) {
+                    throw new Error('Candidato no encontrado');
+                }
+
+                // Marcar como descartado y archivado
+                const updatedCandidate: Candidate = {
+                    ...candidate,
+                    discarded: true,
+                    discardReason: reason,
+                    discardedAt: new Date().toISOString(),
+                    archived: true,
+                    archivedAt: new Date().toISOString(),
+                };
+
+                const updated = await candidatesApi.update(candidateId, updatedCandidate, state.currentUser?.id);
+                setState(s => ({ ...s, candidates: s.candidates.map(c => c.id === candidateId ? updated : c) }));
+                hideToastHelper(loadingToastId);
+                showToastHelper('Candidato descartado y archivado exitosamente', 'success', 3000);
+            } catch (error: any) {
+                console.error('Error discarding candidate:', error);
+                hideToastHelper(loadingToastId);
+                const errorMessage = error.message || 'No se pudo descartar el candidato.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para descartar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al descartar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                throw error;
+            }
+        },
+        loadArchivedCandidates: async () => {
+            try {
+                // Cargar solo candidatos archivados (incluye descartados) con relaciones
+                const archivedCandidates = await candidatesApi.getAll(true, true); // true = include archived, true = include relations
+                // Agregar/actualizar candidatos archivados en el estado sin eliminar los no archivados
+                setState(s => {
+                    const existingIds = new Set(s.candidates.map(c => c.id));
+                    const newArchived = archivedCandidates.filter(c => !existingIds.has(c.id));
+                    return {
+                        ...s,
+                        candidates: [...s.candidates, ...newArchived]
+                    };
+                });
+            } catch (error: any) {
+                console.error('Error loading archived candidates:', error);
+                const errorMessage = error.message || '';
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded');
+                if (isQuotaError) {
+                    showToastHelper(
+                        '⚠️ Límite de transferencia alcanzado. No se pudieron cargar candidatos archivados.',
+                        'error',
+                        5000
+                    );
+                } else {
+                    showToastHelper('Error al cargar candidatos archivados', 'error', 3000);
+                }
             }
         },
         showToast: (message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => {

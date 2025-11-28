@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Candidate } from '../types';
-import { User, StickyNote, Copy, Phone, MessageCircle, PhoneCall } from 'lucide-react';
+import { User, StickyNote, Copy, Phone, MessageCircle, PhoneCall, X } from 'lucide-react';
 import { CandidateDetailsModal } from './CandidateDetailsModal';
 import { PostItModal } from './PostItModal';
+import { DiscardCandidateModal } from './DiscardCandidateModal';
+import { useAppState } from '../App';
 
 interface CandidateCardProps {
     candidate: Candidate;
@@ -11,8 +13,10 @@ interface CandidateCardProps {
 }
 
 export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, isSelected, onSelect }) => {
+    const { actions } = useAppState();
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isPostItOpen, setIsPostItOpen] = useState(false);
+    const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
 
     const handleCardClick = (e: React.MouseEvent) => {
         // Prevent opening modal if the click was on the checkbox, post-it button, or its label
@@ -82,16 +86,28 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, isSelec
                                 <p className="font-semibold text-sm text-gray-800 truncate">{candidate.name}</p>
                                 <p className="text-xs text-gray-500 truncate">{candidate.email}</p>
                             </div>
-                            <button
-                                onClick={handlePostItClick}
-                                className={`postit-control flex-shrink-0 p-1.5 rounded hover:bg-gray-100 transition-colors ${hasPostIts ? 'text-yellow-600' : 'text-gray-400'}`}
-                                title={hasPostIts ? `${postIts.length} post-it(s)` : 'Agregar post-it'}
-                            >
-                                <StickyNote className="w-4 h-4" />
-                                {hasPostIts && (
-                                    <span className="ml-1 text-xs font-semibold">{postIts.length}</span>
-                                )}
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={handlePostItClick}
+                                    className={`postit-control flex-shrink-0 p-1.5 rounded hover:bg-gray-100 transition-colors ${hasPostIts ? 'text-yellow-600' : 'text-gray-400'}`}
+                                    title={hasPostIts ? `${postIts.length} post-it(s)` : 'Agregar post-it'}
+                                >
+                                    <StickyNote className="w-4 h-4" />
+                                    {hasPostIts && (
+                                        <span className="ml-1 text-xs font-semibold">{postIts.length}</span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsDiscardModalOpen(true);
+                                    }}
+                                    className="flex-shrink-0 p-1.5 rounded hover:bg-red-100 transition-colors text-gray-400 hover:text-red-600"
+                                    title="Descartar candidato"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
 
                         {candidate.phone && (
@@ -157,6 +173,17 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, isSelec
             </div>
             {isDetailsOpen && <CandidateDetailsModal candidate={candidate} onClose={() => setIsDetailsOpen(false)} />}
             {isPostItOpen && <PostItModal candidateId={candidate.id} onClose={() => setIsPostItOpen(false)} />}
+            {isDiscardModalOpen && (
+                <DiscardCandidateModal
+                    candidateId={candidate.id}
+                    candidateName={candidate.name}
+                    onClose={() => setIsDiscardModalOpen(false)}
+                    onDiscard={async (reason) => {
+                        await actions.discardCandidate(candidate.id, reason);
+                        setIsDiscardModalOpen(false);
+                    }}
+                />
+            )}
         </>
     );
 };

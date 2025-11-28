@@ -107,6 +107,9 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         comments: commentsWithAttachments,
         archived: dbCandidate.archived || false,
         archivedAt: dbCandidate.archived_at,
+        discarded: dbCandidate.discarded || false,
+        discardReason: dbCandidate.discard_reason || undefined,
+        discardedAt: dbCandidate.discarded_at || undefined,
         hireDate: dbCandidate.hire_date,
         googleDriveFolderId: dbCandidate.google_drive_folder_id,
         googleDriveFolderName: dbCandidate.google_drive_folder_name,
@@ -155,6 +158,9 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.district !== undefined) dbCandidate.district = candidate.district && candidate.district.trim() ? candidate.district.trim() : null;
     if (candidate.archived !== undefined) dbCandidate.archived = candidate.archived;
     if (candidate.archivedAt !== undefined) dbCandidate.archived_at = candidate.archivedAt;
+    if (candidate.discarded !== undefined) dbCandidate.discarded = candidate.discarded;
+    if (candidate.discardReason !== undefined) dbCandidate.discard_reason = candidate.discardReason;
+    if (candidate.discardedAt !== undefined) dbCandidate.discarded_at = candidate.discardedAt;
     if (candidate.hireDate !== undefined) dbCandidate.hire_date = candidate.hireDate;
     if (candidate.googleDriveFolderId !== undefined) dbCandidate.google_drive_folder_id = candidate.googleDriveFolderId;
     if (candidate.googleDriveFolderName !== undefined) dbCandidate.google_drive_folder_name = candidate.googleDriveFolderName;
@@ -174,7 +180,7 @@ export const candidatesApi = {
         // Seleccionar solo campos básicos para reducir egress
         let query = supabase
             .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .order('created_at', { ascending: false })
             .limit(200); // Reducir límite para reducir egress
         
@@ -214,6 +220,9 @@ export const candidatesApi = {
                 comments: [],
                 archived: dbCandidate.archived || false,
                 archivedAt: dbCandidate.archived_at,
+                discarded: dbCandidate.discarded || false,
+                discardReason: dbCandidate.discard_reason || undefined,
+                discardedAt: dbCandidate.discarded_at || undefined,
                 hireDate: dbCandidate.hire_date,
                 googleDriveFolderId: dbCandidate.google_drive_folder_id,
                 googleDriveFolderName: dbCandidate.google_drive_folder_name,
@@ -406,7 +415,7 @@ export const candidatesApi = {
     async getById(id: string): Promise<Candidate | null> {
         const { data, error } = await supabase
             .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('id', id)
             .single();
         

@@ -99,6 +99,9 @@ export interface Candidate {
     comments?: Comment[]; // Comentarios/chat sobre el candidato
     archived?: boolean;
     archivedAt?: string;
+    discarded?: boolean; // Si el candidato fue descartado del proceso
+    discardReason?: string; // Motivo del descarte
+    discardedAt?: string; // Fecha de descarte
     hireDate?: string;
     googleDriveFolderId?: string; // Carpeta del candidato en Google Drive (dentro de la carpeta del proceso)
     googleDriveFolderName?: string; // Nombre de la carpeta del candidato

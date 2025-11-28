@@ -47,7 +47,7 @@ const translateSource = (source: string) => {
 
 export const Dashboard: React.FC = () => {
     const { state, getLabel } = useAppState();
-    const { processes, candidates: allCandidates, applications, interviewEvents, users } = state;
+    const { processes, candidates: allCandidates, interviewEvents, users } = state;
 
     const [processFilter, setProcessFilter] = useState<string>('all');
     const [dateFilter, setDateFilter] = useState<{ start: string; end: string }>({ start: '', end: '' });
@@ -76,7 +76,7 @@ export const Dashboard: React.FC = () => {
 
     const totalCandidates = filteredCandidates.length;
     const totalProcesses = processes.length; // This stat is not filtered
-    const totalApplications = applications.length; // This stat is not filtered
+    const discardedCandidates = allCandidates.filter(c => c.discarded === true).length; // Candidatos descartados (no filtrado)
     
     const hiredCandidates = filteredCandidates.filter(c => {
         const process = processes.find(p => p.id === c.processId);
@@ -291,7 +291,7 @@ export const Dashboard: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <StatCard icon={Briefcase} title="Procesos activos" value={totalProcesses} color="bg-blue-500" />
                 <StatCard icon={Users} title="Candidatos filtrados" value={totalCandidates} color="bg-green-500" />
-                <StatCard icon={FileText} title="Aplicaciones totales" value={totalApplications} color="bg-purple-500" />
+                <StatCard icon={FileText} title="Descartados" value={discardedCandidates} color="bg-purple-500" />
                 <StatCard icon={CheckCircle} title="Contratados filtrados" value={hiredCandidates} color="bg-teal-500" />
             </div>
 
