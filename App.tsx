@@ -469,7 +469,7 @@ const App: React.FC = () => {
                 // Solo settings puede usar fallback porque puede venir de localStorage
                 const [processes, candidates, users, interviewEvents, settings] = await Promise.all([
                     loadWithEmptyFallback(() => processesApi.getAll(false), initialProcesses, 'processes', true), // false = no attachments por defecto
-                    loadWithEmptyFallback(() => candidatesApi.getAll(false, false), initialCandidates, 'candidates', true), // false, false = no archived, no relations
+                    loadWithEmptyFallback(() => candidatesApi.getAll(false, true), initialCandidates, 'candidates', true), // false = no archived, true = include relations (post-its, comments, history)
                     loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
                     loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
                     loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
@@ -812,8 +812,8 @@ const App: React.FC = () => {
         },
         reloadCandidates: async () => {
             try {
-                // No cargar relaciones por defecto para reducir egress (se cargan lazy cuando se necesitan)
-                const candidates = await candidatesApi.getAll(false, false);
+                // Cargar relaciones (post-its, comments, history) para que persistan después de recargar
+                const candidates = await candidatesApi.getAll(false, true); // false = no archived, true = include relations
                 setState(s => ({ ...s, candidates }));
             } catch (error: any) {
                 console.error('Error reloading candidates:', error);
