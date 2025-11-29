@@ -833,12 +833,13 @@ const App: React.FC = () => {
                 const activeCandidates = await candidatesApi.getAll(false, true); // false = no archived, true = include relations
                 
                 // Preservar candidatos archivados existentes en el estado (incluyendo descartados)
+                let preservedArchived: Candidate[] = [];
                 setState(s => {
                     const archivedCandidates = s.candidates.filter(c => c.archived === true);
                     const activeIds = new Set(activeCandidates.map(c => c.id));
                     
                     // Mantener solo candidatos archivados que no están en los activos (para evitar duplicados)
-                    const preservedArchived = archivedCandidates.filter(c => !activeIds.has(c.id));
+                    preservedArchived = archivedCandidates.filter(c => !activeIds.has(c.id));
                     
                     return { 
                         ...s, 
@@ -856,8 +857,11 @@ const App: React.FC = () => {
                             const { googleDriveService } = await import('./lib/googleDrive');
                             googleDriveService.initialize(googleDriveConfig);
                             
+                            // Usar los candidatos combinados (activos + archivados preservados)
+                            const allCandidates = [...activeCandidates, ...preservedArchived];
+                            
                             // Verificar carpetas de candidatos que tienen proceso con carpeta configurada
-                            for (const candidate of candidates) {
+                            for (const candidate of allCandidates) {
                                 const process = state.processes.find(p => p.id === candidate.processId);
                                 if (!process?.googleDriveFolderId) continue;
                                 

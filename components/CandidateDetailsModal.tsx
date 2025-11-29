@@ -163,7 +163,13 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     }, [initialCandidate.id]);
 
     // Sincronizar archivos de Google Drive con attachments al abrir el modal
+    // Usar useRef para evitar múltiples sincronizaciones y preservar categorías
+    const hasSyncedDriveRef = React.useRef<boolean>(false);
+    
     React.useEffect(() => {
+        // Solo sincronizar una vez al abrir el modal, no cada vez que cambia el candidato
+        if (hasSyncedDriveRef.current) return;
+        
         const syncDriveFiles = async () => {
             const googleDriveConfig = state.settings?.googleDrive;
             const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
@@ -193,30 +199,34 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                         googleDriveFolderId: folder.id,
                         googleDriveFolderName: folder.name,
                     }, state.currentUser?.name);
+                    hasSyncedDriveRef.current = true; // Marcar como sincronizado
                     return; // El useEffect se ejecutará de nuevo cuando se actualice el candidato
                 }
 
                 // Si no hay carpeta, no hacer nada
-                if (!folder.id) return;
+                if (!folder.id) {
+                    hasSyncedDriveRef.current = true;
+                    return;
+                }
 
                 // Listar archivos de la carpeta de Google Drive
                 const driveFiles = await googleDriveService.listFilesInFolder(folder.id);
                 
                 // Obtener los IDs de Google Drive de los attachments actuales (extraer de la URL)
-                const existingDriveFileIds = new Set(
-                    (currentCandidate.attachments || [])
-                        .map(att => {
-                            // Extraer ID de Google Drive de la URL (formato: .../file/d/{id}/...)
-                            const match = att.url?.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-                            return match ? match[1] : null;
-                        })
-                        .filter(id => id !== null)
-                );
+                const existingDriveFileIds = new Set<string>();
+                
+                (currentCandidate.attachments || []).forEach(att => {
+                    // Extraer ID de Google Drive de la URL (formato: .../file/d/{id}/...)
+                    const match = att.url?.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) {
+                        existingDriveFileIds.add(match[1]);
+                    }
+                });
 
                 // Encontrar archivos de Drive que no están en los attachments
                 const newFiles = driveFiles.filter(file => !existingDriveFileIds.has(file.id));
 
-                // Si hay archivos nuevos, agregarlos como attachments
+                // Si hay archivos nuevos, agregarlos como attachments (sin categoría por defecto)
                 if (newFiles.length > 0) {
                     const newAttachments: Attachment[] = newFiles.map(file => ({
                         id: `att-${file.id}-${Date.now()}`,
@@ -225,18 +235,25 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                         type: file.mimeType || 'application/octet-stream',
                         size: file.size ? parseInt(file.size) : 0,
                         uploadedAt: file.createdTime || new Date().toISOString(),
+                        category: undefined, // Sin categoría por defecto, el usuario la asignará
                     }));
 
+                    // Obtener el candidato más reciente del estado para preservar attachments existentes con sus categorías
+                    const latestCandidate = state.candidates.find(c => c.id === initialCandidate.id) || currentCandidate;
+                    
                     const updatedCandidate = {
-                        ...currentCandidate,
-                        attachments: [...(currentCandidate.attachments || []), ...newAttachments],
+                        ...latestCandidate,
+                        attachments: [...(latestCandidate.attachments || []), ...newAttachments],
                     };
 
                     await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
                     console.log(`✅ Sincronizados ${newFiles.length} archivos de Google Drive para ${currentCandidate.name}`);
                 }
+                
+                hasSyncedDriveRef.current = true; // Marcar como sincronizado
             } catch (error) {
                 console.warn('Error sincronizando archivos de Google Drive:', error);
+                hasSyncedDriveRef.current = true; // Marcar como sincronizado incluso si hay error para evitar reintentos
                 // No mostrar error al usuario, es una sincronización en background
             }
         };
@@ -246,8 +263,16 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
             syncDriveFiles();
         }, 500);
 
-        return () => clearTimeout(timer);
-    }, [initialCandidate.id, state.settings?.googleDrive, state.candidates, state.processes, actions, state.currentUser?.name]);
+        return () => {
+            clearTimeout(timer);
+            // Resetear el flag cuando se cierra el modal (cuando cambia el ID del candidato)
+        };
+    }, [initialCandidate.id]); // Solo cuando cambia el ID del candidato (al abrir un nuevo modal)
+    
+    // Resetear el flag cuando cambia el candidato
+    React.useEffect(() => {
+        hasSyncedDriveRef.current = false;
+    }, [initialCandidate.id]);
     
     const [previewFile, setPreviewFile] = useState<Attachment | null>(initialCandidate.attachments?.[0] || null);
     const [activeTab, setActiveTab] = useState<'details' | 'history' | 'schedule' | 'comments' | 'documents'>('details');
@@ -665,31 +690,14 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                 attachments: updatedAttachments 
             };
             
-            // Guardar en la base de datos
+            // Guardar en la base de datos (esto ya actualiza el estado global)
             await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
             
-            // Recargar el candidato completo desde la BD para asegurar persistencia
-            const { candidatesApi } = await import('../lib/api/candidates');
-            const reloadedCandidate = await candidatesApi.getById(initialCandidate.id);
+            // Actualizar estado local inmediatamente para reflejar el cambio
+            setEditableCandidate(updatedCandidate);
             
-            if (reloadedCandidate) {
-                // Actualizar estado local con el candidato recargado
-                setEditableCandidate(reloadedCandidate);
-                
-                // Actualizar attachments cargados si están cargados
-                if (attachmentsLoaded) {
-                    setEditableCandidate(prev => ({ ...prev, attachments: reloadedCandidate.attachments || [] }));
-                }
-            }
-            
-            // Recargar candidatos del estado global para sincronización
-            if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
-                try {
-                    await actions.reloadCandidates();
-                } catch (reloadError) {
-                    console.warn('Error recargando candidatos después de actualizar categoría (no crítico):', reloadError);
-                }
-            }
+            // NO recargar candidatos del estado global aquí porque puede sobrescribir los cambios
+            // actions.updateCandidate ya actualiza el estado global correctamente
             
             setEditingAttachmentCategory(null);
             setSelectedCategoryForEdit('');
