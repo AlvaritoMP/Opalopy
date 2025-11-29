@@ -261,23 +261,11 @@ export const DocumentChecklist: React.FC<DocumentChecklistProps> = ({ candidate,
                             attachments: updatedAttachments 
                         };
                         
-                        // Guardar en la base de datos
-                        await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+                        // Guardar en la base de datos (updateCandidate ya devuelve el candidato con attachments actualizados)
+                        const savedCandidate = await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
                         
-                        // Recargar el candidato completo desde la BD para asegurar persistencia
-                        const { candidatesApi } = await import('../lib/api/candidates');
-                        const reloadedCandidate = await candidatesApi.getById(candidate.id);
-                        
-                        if (reloadedCandidate) {
-                            // Recargar candidatos del estado global para sincronización
-                            if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
-                                try {
-                                    await actions.reloadCandidates();
-                                } catch (reloadError) {
-                                    console.warn('Error recargando candidatos después de actualizar categoría (no crítico):', reloadError);
-                                }
-                            }
-                        }
+                        // NO recargar candidatos del estado global aquí porque puede sobrescribir los cambios
+                        // actions.updateCandidate ya actualiza el estado global correctamente con las categorías
                         
                         setEditingAttachmentCategory(null);
                         setSelectedCategoryForEdit('');
