@@ -103,14 +103,20 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         if (updatedCandidate) {
             // Si no estamos editando, actualizar editableCandidate con los datos del estado
             if (!isEditing) {
-                setEditableCandidate(updatedCandidate);
+                setEditableCandidate(prev => {
+                    // Si los attachments están cargados, asegurar que se actualicen también
+                    if (attachmentsLoaded && updatedCandidate.attachments) {
+                        return { ...prev, ...updatedCandidate, attachments: updatedCandidate.attachments };
+                    }
+                    return { ...prev, ...updatedCandidate };
+                });
             }
             // Actualizar preview si no hay uno seleccionado y hay attachments
             if (!previewFile && updatedCandidate.attachments && updatedCandidate.attachments.length > 0) {
                 setPreviewFile(updatedCandidate.attachments[0]);
             }
         }
-    }, [state.candidates, initialCandidate.id, isEditing]);
+    }, [state.candidates, initialCandidate.id, isEditing, previewFile, attachmentsLoaded]);
 
     // Cargar conteo de attachments al abrir el modal (sin cargar los documentos)
     React.useEffect(() => {
@@ -232,6 +238,8 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [attachmentsLoaded, setAttachmentsLoaded] = useState(false);
     const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
     const [attachmentsCount, setAttachmentsCount] = useState<number | null>(null);
+    const [editingAttachmentCategory, setEditingAttachmentCategory] = useState<string | null>(null);
+    const [selectedCategoryForEdit, setSelectedCategoryForEdit] = useState<string>('');
 
     const avatarInputRef = useRef<HTMLInputElement>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -610,6 +618,62 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         setAttachmentsCount(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
         await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
         if(previewFile?.id === id) setPreviewFile(null);
+    };
+    
+    const handleUpdateAttachmentCategory = async (attachmentId: string, newCategoryId: string) => {
+        const loadingToastId = actions.showToast('Actualizando categoría...', 'loading', 0);
+        try {
+            // Obtener el candidato más reciente del estado para asegurar que tenemos los datos actualizados
+            const currentCandidateFromState = state.candidates.find(c => c.id === initialCandidate.id) || editableCandidate;
+            
+            // Actualizar attachments localmente
+            const updatedAttachments = (currentCandidateFromState.attachments || []).map(att => 
+                att.id === attachmentId 
+                    ? { ...att, category: newCategoryId || undefined }
+                    : att
+            );
+            
+            // Crear candidato actualizado con los attachments modificados
+            const updatedCandidate = { 
+                ...currentCandidateFromState, 
+                attachments: updatedAttachments 
+            };
+            
+            // Guardar en la base de datos
+            await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+            
+            // Recargar el candidato completo desde la BD para asegurar persistencia
+            const { candidatesApi } = await import('../lib/api/candidates');
+            const reloadedCandidate = await candidatesApi.getById(initialCandidate.id);
+            
+            if (reloadedCandidate) {
+                // Actualizar estado local con el candidato recargado
+                setEditableCandidate(reloadedCandidate);
+                
+                // Actualizar attachments cargados si están cargados
+                if (attachmentsLoaded) {
+                    setEditableCandidate(prev => ({ ...prev, attachments: reloadedCandidate.attachments || [] }));
+                }
+            }
+            
+            // Recargar candidatos del estado global para sincronización
+            if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+                try {
+                    await actions.reloadCandidates();
+                } catch (reloadError) {
+                    console.warn('Error recargando candidatos después de actualizar categoría (no crítico):', reloadError);
+                }
+            }
+            
+            setEditingAttachmentCategory(null);
+            setSelectedCategoryForEdit('');
+            actions.hideToast(loadingToastId);
+            actions.showToast('Categoría actualizada exitosamente', 'success', 3000);
+        } catch (error: any) {
+            console.error('Error actualizando categoría:', error);
+            actions.hideToast(loadingToastId);
+            actions.showToast(`Error al actualizar la categoría: ${error.message || 'Error desconocido'}`, 'error', 5000);
+        }
     };
     
     const openScheduler = (event: InterviewEvent | null = null) => {
@@ -1151,9 +1215,26 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                                     {att.url.startsWith('https://drive.google.com') ? 'Ver en Google Drive' : 'Ver documento'}
                                                                 </a>
                                                             )}
+                                                            {att.category && process?.documentCategories && (
+                                                                <span className="text-xs text-gray-500 mt-1 block">
+                                                                    Categoría: {process.documentCategories.find(c => c.id === att.category)?.name || 'Sin categoría'}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center space-x-1 flex-shrink-0">
+                                                        {canEdit && (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setEditingAttachmentCategory(att.id);
+                                                                    setSelectedCategoryForEdit(att.category || '');
+                                                                }} 
+                                                                className="p-1 rounded-md hover:bg-blue-100" 
+                                                                title="Editar categoría"
+                                                            >
+                                                                <Edit className="w-4 h-4 text-blue-600" />
+                                                            </button>
+                                                        )}
                                                         <button onClick={() => setPreviewFile(att)} className="p-1 rounded-md hover:bg-gray-200" title="Previsualizar"><Eye className="w-4 h-4 text-gray-600" /></button>
                                                         <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded-md hover:bg-gray-200" title="Abrir"><Download className="w-4 h-4 text-gray-600" /></a>
                                                         <button onClick={() => handleDeleteAttachment(att.id)} className="p-1 rounded-md hover:bg-red-100" title="Eliminar"><Trash2 className="w-4 h-4 text-red-500" /></button>
@@ -1475,6 +1556,73 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                     }}
                 />
             )}
+            
+            {/* Modal para editar categoría de documento existente */}
+            {editingAttachmentCategory && process && (() => {
+                const attachment = editableCandidate.attachments.find(att => att.id === editingAttachmentCategory);
+                if (!attachment) return null;
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+                            <div className="p-6 border-b flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800">Editar categoría de documento</h3>
+                                    <p className="text-sm text-gray-600 mt-1">Archivo: {attachment.name}</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setEditingAttachmentCategory(null);
+                                        setSelectedCategoryForEdit('');
+                                    }}
+                                    className="p-2 rounded-full hover:bg-gray-100"
+                                >
+                                    <X className="w-5 h-5 text-gray-600" />
+                                </button>
+                            </div>
+                            <div className="p-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Categoría
+                                </label>
+                                <select
+                                    value={selectedCategoryForEdit}
+                                    onChange={(e) => setSelectedCategoryForEdit(e.target.value)}
+                                    className="w-full border-gray-300 rounded-md shadow-sm mb-4"
+                                >
+                                    <option value="">Sin categoría</option>
+                                    {process.documentCategories?.map(cat => (
+                                        <option key={cat.id} value={cat.id}>
+                                            {cat.name} {cat.required && '(Requerido)'}
+                                        </option>
+                                    ))}
+                                </select>
+                                {process.documentCategories && process.documentCategories.length === 0 && (
+                                    <p className="text-sm text-gray-500 mb-4">
+                                        No hay categorías definidas para este proceso.
+                                    </p>
+                                )}
+                            </div>
+                            <div className="p-6 bg-gray-50 rounded-b-xl flex justify-end gap-2">
+                                <button
+                                    onClick={() => {
+                                        setEditingAttachmentCategory(null);
+                                        setSelectedCategoryForEdit('');
+                                    }}
+                                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => handleUpdateAttachmentCategory(attachment.id, selectedCategoryForEdit)}
+                                    className="px-4 py-2 bg-primary-600 text-white rounded-md text-sm font-medium hover:bg-primary-700"
+                                >
+                                    Guardar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </>
     );
 };
