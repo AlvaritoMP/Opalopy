@@ -54,6 +54,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [editableCandidate, setEditableCandidate] = useState<Candidate>(initialCandidate);
     const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
     
+    // Usar useRef para rastrear el último candidato procesado y evitar bucles infinitos
+    const lastProcessedCandidateRef = React.useRef<string>('');
+    
     // Marcar como revisado cuando se abre el modal y el candidato está en etapa crítica
     // SOLO si el usuario es cliente (client), no para admin/recruiter
     React.useEffect(() => {
@@ -97,26 +100,52 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         return () => clearTimeout(timer);
     }, [initialCandidate.id, state.currentUser?.role]); // Solo cuando cambia el ID del candidato o el rol del usuario
     
+    // Usar useRef para rastrear el último candidato procesado y evitar bucles infinitos
+    const lastProcessedCandidateRef = React.useRef<string>('');
+    
     // Actualizar editableCandidate cuando el candidato se actualiza en el estado
     React.useEffect(() => {
         const updatedCandidate = state.candidates.find(c => c.id === initialCandidate.id);
-        if (updatedCandidate) {
-            // Si no estamos editando, actualizar editableCandidate con los datos del estado
-            if (!isEditing) {
-                setEditableCandidate(prev => {
-                    // Si los attachments están cargados, asegurar que se actualicen también
-                    if (attachmentsLoaded && updatedCandidate.attachments) {
-                        return { ...prev, ...updatedCandidate, attachments: updatedCandidate.attachments };
-                    }
-                    return { ...prev, ...updatedCandidate };
-                });
-            }
-            // Actualizar preview si no hay uno seleccionado y hay attachments
-            if (!previewFile && updatedCandidate.attachments && updatedCandidate.attachments.length > 0) {
-                setPreviewFile(updatedCandidate.attachments[0]);
-            }
+        if (!updatedCandidate) return;
+        
+        // Crear un hash simple del candidato para detectar cambios reales (sin attachments para evitar bucles)
+        const candidateHash = `${updatedCandidate.id}-${updatedCandidate.stageId}-${updatedCandidate.name}-${updatedCandidate.email}`;
+        
+        // Solo procesar si el candidato realmente cambió (no solo los attachments)
+        if (lastProcessedCandidateRef.current === candidateHash && !isEditing) {
+            return; // No hay cambios significativos, evitar actualización
         }
-    }, [state.candidates, initialCandidate.id, isEditing, previewFile, attachmentsLoaded]);
+        
+        lastProcessedCandidateRef.current = candidateHash;
+        
+        // Si no estamos editando, actualizar editableCandidate con los datos del estado
+        if (!isEditing) {
+            setEditableCandidate(prev => {
+                // Si el ID es diferente, es un candidato completamente nuevo
+                if (prev.id !== updatedCandidate.id) {
+                    return updatedCandidate;
+                }
+                // Actualizar solo los campos principales, mantener attachments locales si están cargados
+                const currentAttachmentsLoaded = prev.attachments && prev.attachments.length > 0;
+                const updated = { 
+                    ...prev, 
+                    ...updatedCandidate,
+                    // Mantener attachments locales si están cargados para evitar perder datos
+                    attachments: currentAttachmentsLoaded 
+                        ? prev.attachments 
+                        : (updatedCandidate.attachments || [])
+                };
+                return updated;
+            });
+        }
+    }, [state.candidates, initialCandidate.id, isEditing]); // Dependencias mínimas para evitar bucles
+    
+    // Actualizar preview solo una vez al inicio (separado para evitar bucles)
+    React.useEffect(() => {
+        if (!previewFile && editableCandidate.attachments && editableCandidate.attachments.length > 0) {
+            setPreviewFile(editableCandidate.attachments[0]);
+        }
+    }, [editableCandidate.id]); // Solo cuando cambia el ID del candidato
 
     // Cargar conteo de attachments al abrir el modal (sin cargar los documentos)
     React.useEffect(() => {
