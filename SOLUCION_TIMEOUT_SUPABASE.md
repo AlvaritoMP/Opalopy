@@ -1,124 +1,139 @@
-# Solución para Timeouts en Supabase
+# Solución para Problemas de Timeout con Supabase
 
 ## 🔴 Problema
 
-Estás recibiendo errores de timeout en Supabase:
+La aplicación está mostrando errores de timeout al cargar datos de Supabase:
 
 ```
-"canceling statement due to statement timeout"
+❌ Failed to load processes from Supabase: Error: Timeout
+❌ Failed to load candidates from Supabase: Error: Timeout
+❌ Failed to load users from Supabase: Error: Timeout
 ```
-
-Esto ocurre cuando las consultas SQL tardan más de lo permitido (generalmente 2-5 segundos en el plan gratuito).
-
-## 🔍 Causas Posibles
-
-1. **Falta de índices**: La tabla `processes` puede no tener índices en `created_at`
-2. **Consultas complejas**: Se están cargando procesos con todas sus relaciones (stages, categories, attachments) en paralelo
-3. **Tabla grande**: Si tienes muchos procesos, la consulta puede ser lenta
-4. **N+1 queries**: Se pueden estar haciendo múltiples consultas por cada proceso
 
 ## ✅ Soluciones Implementadas
 
-### ✅ Solución 1: Optimización de Consultas (YA IMPLEMENTADO)
+### 1. Timeout Aumentado
+- **Antes**: 10 segundos
+- **Ahora**: 30 segundos para la carga inicial
+- Esto da más tiempo para que la base de datos responda, especialmente si está "despertando" desde un estado pausado
 
-He optimizado las consultas en `lib/api/processes.ts` y `lib/api/candidates.ts` para eliminar el patrón N+1:
+### 2. Sistema de Reintentos
+- **Reintentos automáticos**: Hasta 3 intentos (2 reintentos)
+- **Backoff exponencial**: Espera progresivamente más tiempo entre reintentos
+- Esto ayuda cuando la base de datos está iniciando o hay problemas temporales de red
 
-**Antes:**
-- Para 10 procesos: 1 consulta + (10 × 3) = 31 consultas
-- Para 100 candidatos: 1 consulta + (100 × 4) = 401 consultas
+### 3. Mejores Mensajes de Error
+- Los errores ahora indican si es un timeout específico
+- Mensajes más claros para diagnosticar problemas
 
-**Ahora:**
-- Para 10 procesos: 4 consultas totales (1 procesos + 1 stages + 1 categories + 1 attachments)
-- Para 100 candidatos: 5 consultas totales (1 candidatos + 1 history + 1 post_its + 1 comments + 1 attachments)
+## 🔍 Posibles Causas del Problema
 
-Las relaciones ahora se cargan en batch y se agrupan en memoria, reduciendo drásticamente el número de consultas.
+### 1. Base de Datos Pausada (Más Común)
 
-### Solución 2: Agregar Índices (RECOMENDADO - EJECUTAR AHORA)
+En el plan gratuito de Supabase, la base de datos se **pausa automáticamente** después de 1 semana de inactividad.
 
-Ejecuta este SQL en el SQL Editor de Supabase:
+**Solución**:
+1. Ve al [Dashboard de Supabase](https://supabase.com/dashboard)
+2. Selecciona tu proyecto
+3. Ve a **Settings** > **Database**
+4. Si ves un botón "Resume" o "Unpause", haz clic en él
+5. Espera 1-2 minutos para que la base de datos se reactive
 
-```sql
--- Índice para ordenar por created_at (ya debería existir, pero verificar)
-CREATE INDEX IF NOT EXISTS idx_processes_created_at ON processes(created_at DESC);
+**Prevención**:
+- Considera actualizar a un plan de pago si necesitas que la base de datos esté siempre activa
+- O programa un "ping" periódico para mantener la base de datos activa
 
--- Índices para las relaciones (mejoran las consultas de stages, categories, attachments)
-CREATE INDEX IF NOT EXISTS idx_stages_process_id ON stages(process_id);
-CREATE INDEX IF NOT EXISTS idx_document_categories_process_id ON document_categories(process_id);
-CREATE INDEX IF NOT EXISTS idx_attachments_process_id ON attachments(process_id) WHERE candidate_id IS NULL;
+### 2. Problemas de Red o Conexión
 
--- Índice compuesto para attachments del proceso (sin candidato)
-CREATE INDEX IF NOT EXISTS idx_attachments_process_no_candidate ON attachments(process_id, candidate_id) WHERE candidate_id IS NULL;
+**Solución**:
+- Verifica tu conexión a internet
+- Intenta desde otro navegador o dispositivo
+- Verifica si hay un firewall bloqueando las conexiones a Supabase
+
+### 3. Límites de Compute Hours Excedidos
+
+Si has excedido los compute hours de tu plan, la base de datos puede estar limitada.
+
+**Solución**:
+1. Ve al Dashboard de Supabase
+2. Revisa el uso de Compute Hours
+3. Espera a que se reinicie el período de facturación
+4. O actualiza tu plan
+
+### 4. Problemas con las Políticas RLS (Row Level Security)
+
+Si las políticas RLS están mal configuradas, las consultas pueden fallar.
+
+**Solución**:
+1. Ve al Dashboard de Supabase
+2. Ve a **Authentication** > **Policies**
+3. Verifica que las políticas permitan las operaciones necesarias
+4. Revisa los logs de API en **Logs** > **API Logs**
+
+## 🛠️ Verificación
+
+### Paso 1: Verificar Estado de la Base de Datos
+
+1. Abre el [Dashboard de Supabase](https://supabase.com/dashboard)
+2. Selecciona tu proyecto: `afhiiplxqtodqxvmswor`
+3. Ve a **Settings** > **Database**
+4. Verifica el estado de la base de datos
+
+### Paso 2: Verificar Variables de Entorno
+
+Asegúrate de que las variables de entorno estén configuradas correctamente:
+
+```env
+VITE_SUPABASE_URL=https://afhiiplxqtodqxvmswor.supabase.co
+VITE_SUPABASE_ANON_KEY=tu_anon_key_aqui
 ```
 
-### Solución 2: Optimizar las Consultas
+### Paso 3: Verificar en la Consola del Navegador
 
-Las consultas actuales cargan todos los procesos con todas sus relaciones. Esto puede ser lento si tienes muchos procesos.
+1. Abre las Developer Tools (F12)
+2. Ve a la pestaña **Console**
+3. Busca mensajes de error más detallados
+4. Ve a la pestaña **Network** y filtra por "supabase.co"
+5. Verifica el estado de las peticiones (200 = éxito, timeout = problema)
 
-**Opciones:**
+## 📊 Mejoras Implementadas en el Código
 
-1. **Agregar límite y paginación** (para listas grandes)
-2. **Cargar relaciones solo cuando se necesiten** (lazy loading)
-3. **Usar una sola consulta con JOINs** en lugar de múltiples consultas
-
-### Solución 3: Aumentar el Timeout (Solo para planes pagos)
-
-Si estás en un plan pago de Supabase, puedes aumentar el timeout en la configuración del proyecto.
-
-## 🚀 Implementación Inmediata
-
-### Paso 1: Ejecutar los Índices (CRÍTICO)
-
-Los índices mejorarán significativamente el rendimiento de las consultas optimizadas.
-
-1. Ve a tu proyecto en Supabase: https://supabase.com
-2. Ve a **SQL Editor** en el menú lateral
-3. Pega el SQL de arriba (Solución 1)
-4. Haz clic en **Run**
-
-### Paso 2: Verificar el Rendimiento
-
-Después de agregar los índices:
-1. Recarga la aplicación
-2. Verifica que los procesos se carguen más rápido
-3. Revisa los logs de Supabase para ver si los timeouts desaparecen
-
-### Paso 3: Si el Problema Persiste
-
-Si después de agregar los índices aún tienes problemas:
-
-1. **Considera agregar paginación**: En lugar de cargar todos los procesos, carga solo los primeros 20-50
-2. **Lazy loading**: Carga las relaciones (stages, categories) solo cuando se abre un proceso específico
-3. **Caché**: Implementa caché en el frontend para evitar recargar datos constantemente
-
-## 📊 Verificar Índices Existentes
-
-Para ver qué índices ya tienes, ejecuta este SQL:
-
-```sql
--- Ver índices en la tabla processes
-SELECT 
-    indexname,
-    indexdef
-FROM pg_indexes
-WHERE tablename = 'processes'
-ORDER BY indexname;
-
--- Ver índices en otras tablas relacionadas
-SELECT 
-    tablename,
-    indexname,
-    indexdef
-FROM pg_indexes
-WHERE tablename IN ('stages', 'document_categories', 'attachments')
-ORDER BY tablename, indexname;
+### Antes:
+```typescript
+setTimeout(() => reject(new Error('Timeout')), 10000) // 10 segundos
 ```
 
-## ⚠️ Nota sobre el Plan Gratuito
+### Ahora:
+```typescript
+const timeoutMs = 30000; // 30 segundos
+// Con reintentos automáticos (hasta 3 intentos)
+// Y backoff exponencial entre reintentos
+```
 
-El plan gratuito de Supabase tiene:
-- Timeout de consultas: ~2-5 segundos
-- Límite de conexiones simultáneas
-- Límite de ancho de banda
+## 🚀 Próximos Pasos
 
-Si tu aplicación crece, considera actualizar a un plan pago.
+Si el problema persiste después de verificar lo anterior:
 
+1. **Revisa los logs de Supabase**:
+   - Dashboard > Logs > API Logs
+   - Busca errores específicos
+
+2. **Verifica el estado del proyecto**:
+   - Dashboard > Settings > General
+   - Verifica que el proyecto esté activo
+
+3. **Contacta con Soporte de Supabase**:
+   - Si el problema persiste, puede ser un problema del lado de Supabase
+   - Ve a [Supabase Support](https://supabase.com/support)
+
+## 📝 Notas Adicionales
+
+- Los timeouts aumentados y los reintentos solo aplican a la **carga inicial** de datos
+- Las operaciones normales (crear, editar, eliminar) mantienen sus timeouts originales
+- Si la base de datos está pausada, la primera carga puede tardar más (hasta 1-2 minutos)
+
+## 🔗 Referencias
+
+- [Supabase Database Pausing](https://supabase.com/docs/guides/platform/database-pausing)
+- [Supabase Compute Hours](https://supabase.com/docs/guides/platform/compute-hours)
+- [Supabase Troubleshooting](https://supabase.com/docs/guides/platform/troubleshooting)

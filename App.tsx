@@ -444,31 +444,59 @@ const App: React.FC = () => {
             try {
                 console.log('Loading data from Supabase...');
                 
-                // Cargar datos de Supabase con timeouts y mejor manejo de errores
+                // Cargar datos de Supabase con timeouts aumentados y reintentos
                 const loadWithEmptyFallback = async <T,>(
                     apiCall: () => Promise<T>,
                     emptyFallback: T,
                     name: string,
                     useEmptyFallback: boolean = false
                 ): Promise<T> => {
-                    try {
-                        const result = await Promise.race([
-                            apiCall(),
-                            new Promise<T>((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 10000)
-                            )
-                        ]);
-                        console.log(`✓ Loaded ${name} from Supabase`);
-                        return result;
-                    } catch (error) {
-                        console.error(`❌ Failed to load ${name} from Supabase:`, error);
-                        if (useEmptyFallback) {
-                            console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
-                            return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
+                    const maxRetries = 2;
+                    const timeoutMs = 30000; // 30 segundos (aumentado de 10s)
+                    
+                    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                        try {
+                            if (attempt > 0) {
+                                console.log(`🔄 Reintentando cargar ${name} (intento ${attempt + 1}/${maxRetries + 1})...`);
+                                // Esperar antes de reintentar (backoff exponencial)
+                                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                            }
+                            
+                            const result = await Promise.race([
+                                apiCall(),
+                                new Promise<T>((_, reject) => 
+                                    setTimeout(() => reject(new Error(`Timeout después de ${timeoutMs/1000}s`)), timeoutMs)
+                                )
+                            ]);
+                            console.log(`✓ Loaded ${name} from Supabase`);
+                            return result;
+                        } catch (error: any) {
+                            const errorMessage = error?.message || error?.toString() || 'Error desconocido';
+                            const isTimeout = errorMessage.includes('Timeout');
+                            
+                            if (attempt < maxRetries) {
+                                console.warn(`⚠ Intento ${attempt + 1} fallido para ${name}: ${errorMessage}. Reintentando...`);
+                                continue;
+                            }
+                            
+                            // Último intento falló
+                            console.error(`❌ Failed to load ${name} from Supabase después de ${maxRetries + 1} intentos:`, error);
+                            
+                            if (isTimeout) {
+                                console.error(`⏱️ Timeout: La base de datos puede estar pausada o hay problemas de conexión. Verifica el estado de Supabase.`);
+                            }
+                            
+                            if (useEmptyFallback) {
+                                console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
+                                return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
+                            }
+                            console.warn(`⚠ Using fallback data for ${name}`);
+                            return emptyFallback;
                         }
-                        console.warn(`⚠ Using fallback data for ${name}`);
-                        return emptyFallback;
                     }
+                    
+                    // Nunca debería llegar aquí, pero por si acaso
+                    return useEmptyFallback ? (Array.isArray(emptyFallback) ? [] : emptyFallback) as T : emptyFallback;
                 };
 
                 // Para procesos, candidatos y usuarios, usar arrays vacíos si falla (no datos de prueba)

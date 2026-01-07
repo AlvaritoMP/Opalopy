@@ -1,5 +1,6 @@
 import { supabase, setCurrentUser } from '../supabase';
 import { User } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 // Convertir de DB a tipo de aplicación
 function dbToUser(dbUser: any): User {
@@ -34,6 +35,7 @@ export const usersApi = {
         const { data, error } = await supabase
             .from('users')
             .select('*')
+            .eq('app_name', APP_NAME)
             .order('created_at', { ascending: false });
         
         if (error) throw error;
@@ -46,6 +48,7 @@ export const usersApi = {
             .from('users')
             .select('*')
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
@@ -61,6 +64,7 @@ export const usersApi = {
             .from('users')
             .select('*')
             .eq('email', email.toLowerCase())
+            .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
@@ -73,6 +77,7 @@ export const usersApi = {
     // Crear usuario
     async create(userData: Omit<User, 'id'>): Promise<User> {
         const dbData = userToDb(userData);
+        dbData.app_name = APP_NAME;
         const { data, error } = await supabase
             .from('users')
             .insert(dbData)
@@ -86,10 +91,12 @@ export const usersApi = {
     // Actualizar usuario
     async update(id: string, userData: Partial<User>): Promise<User> {
         const dbData = userToDb(userData);
+        delete dbData.app_name; // No permitir cambiar app_name
         const { data, error } = await supabase
             .from('users')
             .update(dbData)
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .select()
             .single();
         
@@ -114,7 +121,8 @@ export const usersApi = {
         const { error: deleteError } = await supabase
             .from('users')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         console.log('Delete result (without select):', { deleteError });
         

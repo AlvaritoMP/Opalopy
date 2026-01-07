@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { AppSettings } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -50,6 +51,7 @@ export const settingsApi = {
             .from('app_settings')
             .select('*')
             .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
@@ -73,6 +75,7 @@ export const settingsApi = {
     async create(settings: AppSettings): Promise<AppSettings> {
         const dbData = settingsToDb(settings);
         dbData.id = SETTINGS_ID;
+        dbData.app_name = APP_NAME;
 
         const { data, error } = await supabase
             .from('app_settings')
@@ -87,12 +90,14 @@ export const settingsApi = {
     // Actualizar configuración
     async update(settings: Partial<AppSettings>): Promise<AppSettings> {
         const dbData = settingsToDb(settings);
+        delete dbData.app_name; // No permitir cambiar app_name
         console.log('settingsApi.update - dbData:', JSON.stringify(dbData, null, 2));
         
         // Primero obtener la configuración actual para hacer merge
         const current = await this.get();
         const mergedSettings = { ...current, ...settings };
         const mergedDbData = settingsToDb(mergedSettings);
+        delete mergedDbData.app_name; // No permitir cambiar app_name
         console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
         
         // Separar campos opcionales que pueden no existir en el esquema
@@ -102,7 +107,8 @@ export const settingsApi = {
         const { error: standardError } = await supabase
             .from('app_settings')
             .update(standardFields)
-            .eq('id', SETTINGS_ID);
+            .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME);
         
         if (standardError) {
             console.error('Error updating standard settings fields:', standardError);
@@ -120,7 +126,8 @@ export const settingsApi = {
             const { error: optionalError } = await supabase
                 .from('app_settings')
                 .update(optionalFields)
-                .eq('id', SETTINGS_ID);
+                .eq('id', SETTINGS_ID)
+                .eq('app_name', APP_NAME);
             
             if (optionalError) {
                 const errorMsg = optionalError.message || '';
@@ -139,6 +146,7 @@ export const settingsApi = {
             .from('app_settings')
             .select('*')
             .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME)
             .single();
         
         if (fetchError) {

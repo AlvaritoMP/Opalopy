@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { Candidate, CandidateHistory, PostIt, Comment, Attachment } from '../../types';
 import { processesApi } from './processes';
 import { convertirSalarioALetras } from '../numberToWords';
+import { APP_NAME } from '../appConfig';
 
 // Convertir de DB a tipo de aplicación
 async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
@@ -10,6 +11,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         .from('candidate_history')
         .select('*')
         .eq('candidate_id', dbCandidate.id)
+        .eq('app_name', APP_NAME)
         .order('moved_at', { ascending: true });
 
     // Obtener post-its
@@ -17,6 +19,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         .from('post_its')
         .select('*')
         .eq('candidate_id', dbCandidate.id)
+        .eq('app_name', APP_NAME)
         .order('created_at', { ascending: false });
 
     // Obtener comentarios
@@ -24,6 +27,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         .from('comments')
         .select('*')
         .eq('candidate_id', dbCandidate.id)
+        .eq('app_name', APP_NAME)
         .order('created_at', { ascending: false });
 
     // Obtener adjuntos
@@ -31,6 +35,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         .from('attachments')
         .select('*')
         .eq('candidate_id', dbCandidate.id)
+        .eq('app_name', APP_NAME)
         .order('uploaded_at', { ascending: false });
 
     // Obtener adjuntos de comentarios
@@ -40,7 +45,8 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         const { data: commentAtts } = await supabase
             .from('attachments')
             .select('*')
-            .in('comment_id', commentIds);
+            .in('comment_id', commentIds)
+            .eq('app_name', APP_NAME);
         commentAttachments = commentAtts || [];
     }
 
@@ -181,6 +187,7 @@ export const candidatesApi = {
         let query = supabase
             .from('candidates')
             .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .eq('app_name', APP_NAME)
             .order('created_at', { ascending: false })
             .limit(200); // Reducir límite para reducir egress
         
@@ -243,16 +250,19 @@ export const candidatesApi = {
                 .from('candidate_history')
                 .select('id, candidate_id, stage_id, moved_at, moved_by')
                 .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
                 .order('moved_at', { ascending: true }),
             supabase
                 .from('post_its')
                 .select('id, candidate_id, text, color, created_by, created_at')
                 .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
                 .order('created_at', { ascending: false }),
             supabase
                 .from('comments')
                 .select('id, candidate_id, text, user_id, created_at')
                 .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
                 .order('created_at', { ascending: false }),
         ]);
 
@@ -433,6 +443,7 @@ export const candidatesApi = {
             .from('candidates')
             .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
@@ -447,6 +458,7 @@ export const candidatesApi = {
     async create(candidateData: Omit<Candidate, 'id' | 'history'>, createdBy?: string): Promise<Candidate> {
         const dbData = candidateToDb(candidateData);
         if (createdBy) dbData.created_by = createdBy;
+        dbData.app_name = APP_NAME;
         // Set application_started_date if not provided
         if (!dbData.application_started_date) {
             dbData.application_started_date = new Date().toISOString();
@@ -522,6 +534,7 @@ export const candidatesApi = {
                 stage_id: candidateData.stageId,
                 moved_at: new Date().toISOString(),
                 moved_by: createdBy || null,
+                app_name: APP_NAME,
             });
         }
 
@@ -544,6 +557,7 @@ export const candidatesApi = {
                     category: att.category || null,
                     uploaded_at: att.uploadedAt || new Date().toISOString(),
                     comment_id: null,
+                    app_name: APP_NAME,
                 };
             });
 
@@ -587,6 +601,7 @@ export const candidatesApi = {
         }
 
         const dbData = candidateToDb(candidateData);
+        delete dbData.app_name; // No permitir cambiar app_name
         
         // Separar campos que pueden no existir en el esquema (province, district, critical_stage_reviewed_at, agreed_salary_in_words)
         // Si las columnas no existen en la BD, se omiten de la actualización
@@ -597,7 +612,8 @@ export const candidatesApi = {
         const { error: standardError } = await supabase
             .from('candidates')
             .update(standardFields)
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (standardError) throw standardError;
         
@@ -612,7 +628,8 @@ export const candidatesApi = {
             const { error: locationError } = await supabase
                 .from('candidates')
                 .update(locationFields)
-                .eq('id', id);
+                .eq('id', id)
+                .eq('app_name', APP_NAME);
             
             // Si hay error, verificar si es por columnas faltantes
             if (locationError) {
@@ -634,7 +651,8 @@ export const candidatesApi = {
                 const { error: criticalError } = await supabase
                     .from('candidates')
                     .update({ critical_stage_reviewed_at })
-                    .eq('id', id);
+                    .eq('id', id)
+                    .eq('app_name', APP_NAME);
                 
                 if (criticalError) {
                     const errorMsg = criticalError.message || '';
@@ -666,6 +684,7 @@ export const candidatesApi = {
                         .from('candidates')
                         .update({ agreed_salary_in_words })
                         .eq('id', id)
+                        .eq('app_name', APP_NAME)
                         .select('agreed_salary_in_words')
                         .single();
                     
@@ -717,6 +736,7 @@ export const candidatesApi = {
                 stage_id: candidateData.stageId,
                 moved_at: new Date().toISOString(),
                 moved_by: movedBy || null,
+                app_name: APP_NAME,
             });
             
             // Verificar si la nueva etapa es crítica para resetear criticalStageReviewedAt
@@ -733,7 +753,8 @@ export const candidatesApi = {
                             const { error: resetError } = await supabase
                                 .from('candidates')
                                 .update({ critical_stage_reviewed_at: null })
-                                .eq('id', id);
+                                .eq('id', id)
+                                .eq('app_name', APP_NAME);
                             
                             if (resetError) {
                                 const errorMsg = resetError.message || '';
@@ -766,6 +787,7 @@ export const candidatesApi = {
                 .from('attachments')
                 .select('id')
                 .eq('candidate_id', id)
+                .eq('app_name', APP_NAME)
                 .is('comment_id', null);
 
             const currentAttachmentIds = new Set((currentAttachments || []).map(a => a.id));
@@ -777,6 +799,7 @@ export const candidatesApi = {
                 await supabase
                     .from('attachments')
                     .delete()
+                    .eq('app_name', APP_NAME)
                     .in('id', toDelete);
             }
 
@@ -799,6 +822,7 @@ export const candidatesApi = {
                     category: attachment.category || null,
                     uploaded_at: attachment.uploadedAt || new Date().toISOString(),
                     comment_id: null, // Attachments de candidato no tienen comment_id
+                    app_name: APP_NAME,
                 };
 
                 // Usar upsert para insertar o actualizar
@@ -860,7 +884,8 @@ export const candidatesApi = {
         const { error } = await supabase
             .from('candidates')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
     },
@@ -873,7 +898,8 @@ export const candidatesApi = {
                 archived: true,
                 archived_at: new Date().toISOString(),
             })
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
         return await this.getById(id) as Candidate;
@@ -887,7 +913,8 @@ export const candidatesApi = {
                 archived: false,
                 archived_at: null,
             })
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
         return await this.getById(id) as Candidate;

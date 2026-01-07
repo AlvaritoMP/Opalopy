@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { PostIt } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 export const postItsApi = {
     // Crear post-it
@@ -11,6 +12,7 @@ export const postItsApi = {
                 text: postIt.text,
                 color: postIt.color,
                 created_by: postIt.createdBy,
+                app_name: APP_NAME,
             })
             .select()
             .single();
@@ -31,7 +33,8 @@ export const postItsApi = {
         const { error } = await supabase
             .from('post_its')
             .delete()
-            .eq('id', postItId);
+            .eq('id', postItId)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
     },

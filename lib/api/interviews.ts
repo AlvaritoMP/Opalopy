@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { InterviewEvent } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 // Convertir de DB a tipo de aplicación
 function dbToInterviewEvent(dbEvent: any): InterviewEvent {
@@ -34,6 +35,7 @@ export const interviewsApi = {
         const { data, error } = await supabase
             .from('interview_events')
             .select('*')
+            .eq('app_name', APP_NAME)
             .order('start_time', { ascending: true });
         
         if (error) throw error;
@@ -45,6 +47,7 @@ export const interviewsApi = {
         const { data, error } = await supabase
             .from('interview_events')
             .select('*')
+            .eq('app_name', APP_NAME)
             .gte('start_time', start.toISOString())
             .lte('start_time', end.toISOString())
             .order('start_time', { ascending: true });
@@ -57,6 +60,7 @@ export const interviewsApi = {
     async create(eventData: Omit<InterviewEvent, 'id'>, createdBy?: string): Promise<InterviewEvent> {
         const dbData = interviewEventToDb(eventData);
         if (createdBy) dbData.created_by = createdBy;
+        dbData.app_name = APP_NAME;
 
         const { data, error } = await supabase
             .from('interview_events')
@@ -71,10 +75,12 @@ export const interviewsApi = {
     // Actualizar evento
     async update(id: string, eventData: Partial<InterviewEvent>): Promise<InterviewEvent> {
         const dbData = interviewEventToDb(eventData);
+        delete dbData.app_name; // No permitir cambiar app_name
         const { data, error } = await supabase
             .from('interview_events')
             .update(dbData)
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .select()
             .single();
         
@@ -87,7 +93,8 @@ export const interviewsApi = {
         const { error } = await supabase
             .from('interview_events')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
     },

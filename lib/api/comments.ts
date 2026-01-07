@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { Comment, Attachment } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 export const commentsApi = {
     // Crear comentario
@@ -10,6 +11,7 @@ export const commentsApi = {
                 candidate_id: candidateId,
                 text: comment.text,
                 user_id: comment.userId,
+                app_name: APP_NAME,
             })
             .select()
             .single();
@@ -26,6 +28,7 @@ export const commentsApi = {
                 category: att.category,
                 comment_id: data.id,
                 uploaded_by: comment.userId,
+                app_name: APP_NAME,
             }));
 
             await supabase.from('attachments').insert(attachmentsToInsert);
@@ -35,7 +38,8 @@ export const commentsApi = {
         const { data: attachments } = await supabase
             .from('attachments')
             .select('*')
-            .eq('comment_id', data.id);
+            .eq('comment_id', data.id)
+            .eq('app_name', APP_NAME);
 
         return {
             id: data.id,
@@ -60,7 +64,8 @@ export const commentsApi = {
         const { error } = await supabase
             .from('comments')
             .delete()
-            .eq('id', commentId);
+            .eq('id', commentId)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
     },

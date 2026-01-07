@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { Process, Stage, DocumentCategory, Attachment } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 // Convertir de DB a tipo de aplicación
 function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any[] = [], attachments: any[] = []): Process {
@@ -76,6 +77,7 @@ export const processesApi = {
             .from('attachments')
             .select('*', { count: 'exact', head: true })
             .eq('process_id', processId)
+            .eq('app_name', APP_NAME)
             .is('candidate_id', null); // Solo attachments del proceso, no de candidatos
         
         if (error) throw error;
@@ -105,6 +107,7 @@ export const processesApi = {
                     .from('attachments')
                     .select('url')
                     .eq('process_id', processId)
+                    .eq('app_name', APP_NAME)
                     .is('candidate_id', null);
                 
                 const dbDriveFileIds = new Set(
@@ -137,6 +140,7 @@ export const processesApi = {
             .from('attachments')
             .select('id, process_id, name, url, type, size, category, uploaded_at')
             .eq('process_id', processId)
+            .eq('app_name', APP_NAME)
             .is('candidate_id', null) // Solo attachments del proceso, no de candidatos
             .order('uploaded_at', { ascending: false });
         
@@ -162,6 +166,7 @@ export const processesApi = {
         const { data: processes, error } = await supabase
             .from('processes')
             .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, created_at')
+            .eq('app_name', APP_NAME)
             .order('created_at', { ascending: false })
             .limit(200); // Reducir límite para reducir egress
         
@@ -177,11 +182,13 @@ export const processesApi = {
                 .from('stages')
                 .select('id, process_id, name, order_index, required_documents, is_critical')
                 .in('process_id', processIds)
+                .eq('app_name', APP_NAME)
                 .order('order_index'),
             supabase
                 .from('document_categories')
                 .select('id, process_id, name, description, required')
-                .in('process_id', processIds),
+                .in('process_id', processIds)
+                .eq('app_name', APP_NAME),
         ];
 
         // Solo cargar attachments si se solicitan explícitamente (lazy loading)
@@ -191,6 +198,7 @@ export const processesApi = {
                     .from('attachments')
                     .select('id, process_id, name, url, type, size, category, uploaded_at')
                     .in('process_id', processIds)
+                    .eq('app_name', APP_NAME)
                     .is('candidate_id', null)
             );
         } else {
@@ -247,6 +255,7 @@ export const processesApi = {
             .from('processes')
             .select('*')
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
@@ -257,9 +266,9 @@ export const processesApi = {
         if (!process) return null;
 
         const [stages, categories, attachments] = await Promise.all([
-            supabase.from('stages').select('*').eq('process_id', id).order('order_index'),
-            supabase.from('document_categories').select('*').eq('process_id', id),
-            supabase.from('attachments').select('*').eq('process_id', id).is('candidate_id', null),
+            supabase.from('stages').select('*').eq('process_id', id).eq('app_name', APP_NAME).order('order_index'),
+            supabase.from('document_categories').select('*').eq('process_id', id).eq('app_name', APP_NAME),
+            supabase.from('attachments').select('*').eq('process_id', id).eq('app_name', APP_NAME).is('candidate_id', null),
         ]);
 
         return dbToProcess(process, stages.data || [], categories.data || [], attachments.data || []);
@@ -269,6 +278,7 @@ export const processesApi = {
     async create(processData: Omit<Process, 'id'>, createdBy?: string): Promise<Process> {
         const dbData = processToDb(processData);
         if (createdBy) dbData.created_by = createdBy;
+        dbData.app_name = APP_NAME;
 
         // Separar flyer_position del resto de los datos para manejarlo por separado
         // ya que la columna puede no existir en la BD
@@ -332,6 +342,7 @@ export const processesApi = {
                 name: stage.name,
                 order_index: index,
                 required_documents: stage.requiredDocuments || null,
+                app_name: APP_NAME,
             }));
 
             // Intentar insertar con is_critical primero (si la columna existe funcionará)
@@ -341,6 +352,7 @@ export const processesApi = {
                 order_index: index,
                 required_documents: stage.requiredDocuments || null,
                 is_critical: stage.isCritical || false,
+                app_name: APP_NAME,
             }));
             
             const { data: insertedStages, error: stagesError } = await supabase
@@ -415,6 +427,7 @@ export const processesApi = {
                 name: cat.name,
                 description: cat.description || null,
                 required: cat.required || false,
+                app_name: APP_NAME,
             }));
 
             const { error: categoriesError } = await supabase
@@ -437,6 +450,7 @@ export const processesApi = {
                     size: att.size,
                     category: att.category || null,
                     candidate_id: null, // Estos son attachments del proceso, no de candidatos
+                    app_name: APP_NAME,
                 }));
 
             if (attachmentsToInsert.length > 0) {
@@ -459,6 +473,7 @@ export const processesApi = {
     // Actualizar proceso
     async update(id: string, processData: Partial<Process>): Promise<Process> {
         const dbData = processToDb(processData);
+        delete dbData.app_name; // No permitir cambiar app_name
         
         // Separar flyer_position del resto de los datos para manejarlo por separado
         // ya que la columna puede no existir en la BD
@@ -468,7 +483,8 @@ export const processesApi = {
         const { error } = await supabase
             .from('processes')
             .update(restDbData)
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
         
@@ -479,7 +495,8 @@ export const processesApi = {
                 const { error: positionError } = await supabase
                     .from('processes')
                     .update({ flyer_position })
-                    .eq('id', id);
+                    .eq('id', id)
+                    .eq('app_name', APP_NAME);
                 
                 if (positionError) {
                     // Si el error es porque la columna no existe, solo loguear y continuar
@@ -520,6 +537,7 @@ export const processesApi = {
                 .from('stages')
                 .select('id, name, order_index, required_documents, is_critical')
                 .eq('process_id', id)
+                .eq('app_name', APP_NAME)
                 .order('order_index');
             
             if (fetchError) {
@@ -596,7 +614,8 @@ export const processesApi = {
                 const { error: tempError } = await supabase
                     .from('stages')
                     .update({ order_index: tempUpdate.temp_order })
-                    .eq('id', tempUpdate.id);
+                    .eq('id', tempUpdate.id)
+                    .eq('app_name', APP_NAME);
                 
                 if (tempError) {
                     console.error(`Error actualizando order_index temporal para stage ${tempUpdate.id}:`, tempError);
@@ -616,7 +635,8 @@ export const processesApi = {
                 const { error: updateError } = await supabase
                     .from('stages')
                     .update(standardUpdate)
-                    .eq('id', stage.id);
+                    .eq('id', stage.id)
+                    .eq('app_name', APP_NAME);
                 
                 if (updateError) {
                     console.error(`Error actualizando stage ${stage.id}:`, updateError);
@@ -629,7 +649,8 @@ export const processesApi = {
                         const { error: criticalError } = await supabase
                             .from('stages')
                             .update({ is_critical: stage.is_critical })
-                            .eq('id', stage.id);
+                            .eq('id', stage.id)
+                            .eq('app_name', APP_NAME);
                         
                         if (criticalError) {
                             // Si el error es porque la columna no existe, solo loguear y continuar
@@ -659,6 +680,7 @@ export const processesApi = {
                     name: s.name,
                     order_index: s.order_index,
                     required_documents: s.required_documents,
+                    app_name: APP_NAME,
                 }));
                 
                 const { data: insertedStages, error: insertError } = await supabase
@@ -680,7 +702,8 @@ export const processesApi = {
                                 const { error: criticalError } = await supabase
                                     .from('stages')
                                     .update({ is_critical: true })
-                                    .eq('id', insertedStage.id);
+                                    .eq('id', insertedStage.id)
+                                    .eq('app_name', APP_NAME);
                                 
                                 if (criticalError) {
                                     const isColumnError = criticalError.message?.includes('is_critical') || 
@@ -709,6 +732,7 @@ export const processesApi = {
                     .from('candidate_history')
                     .select('id')
                     .eq('stage_id', stageId)
+                    .eq('app_name', APP_NAME)
                     .limit(1);
                 
                 if (checkError) {
@@ -722,7 +746,8 @@ export const processesApi = {
                     const { error: deleteError } = await supabase
                         .from('stages')
                         .delete()
-                        .eq('id', stageId);
+                        .eq('id', stageId)
+                        .eq('app_name', APP_NAME);
                     
                     if (deleteError) {
                         console.warn(`Error eliminando stage ${stageId}:`, deleteError);
@@ -737,7 +762,7 @@ export const processesApi = {
         // Actualizar categorías si se proporcionan
         if (processData.documentCategories !== undefined) {
             // Eliminar categorías existentes
-            await supabase.from('document_categories').delete().eq('process_id', id);
+            await supabase.from('document_categories').delete().eq('process_id', id).eq('app_name', APP_NAME);
             
             // Insertar nuevas categorías
             if (processData.documentCategories.length > 0) {
@@ -746,6 +771,7 @@ export const processesApi = {
                     name: cat.name,
                     description: cat.description || null,
                     required: cat.required || false,
+                    app_name: APP_NAME,
                 }));
 
                 const { error: categoriesError } = await supabase
@@ -765,6 +791,7 @@ export const processesApi = {
                 .from('attachments')
                 .select('id')
                 .eq('process_id', id)
+                .eq('app_name', APP_NAME)
                 .is('candidate_id', null);
             
             if (existingAttachments) {
@@ -778,6 +805,7 @@ export const processesApi = {
                     const { error: deleteError } = await supabase
                         .from('attachments')
                         .delete()
+                        .eq('app_name', APP_NAME)
                         .in('id', attachmentsToDelete);
                     
                     if (deleteError) {
@@ -803,7 +831,8 @@ export const processesApi = {
         const { data: candidates } = await supabase
             .from('candidates')
             .select('id')
-            .eq('process_id', id);
+            .eq('process_id', id)
+            .eq('app_name', APP_NAME);
         
         if (candidates && candidates.length > 0) {
             const candidateIds = candidates.map(c => c.id);
@@ -813,6 +842,7 @@ export const processesApi = {
             const { error: candidateAttachmentsError } = await supabase
                 .from('attachments')
                 .delete()
+                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (candidateAttachmentsError) {
@@ -823,6 +853,7 @@ export const processesApi = {
             const { error: postItsError } = await supabase
                 .from('post_its')
                 .delete()
+                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (postItsError) {
@@ -833,6 +864,7 @@ export const processesApi = {
             const { error: commentsError } = await supabase
                 .from('comments')
                 .delete()
+                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (commentsError) {
@@ -843,6 +875,7 @@ export const processesApi = {
             const { error: historyError } = await supabase
                 .from('candidate_history')
                 .delete()
+                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (historyError) {
@@ -853,6 +886,7 @@ export const processesApi = {
             const { error: interviewsError } = await supabase
                 .from('interview_events')
                 .delete()
+                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (interviewsError) {
@@ -863,7 +897,8 @@ export const processesApi = {
             const { error: candidatesError } = await supabase
                 .from('candidates')
                 .delete()
-                .eq('process_id', id);
+                .eq('process_id', id)
+                .eq('app_name', APP_NAME);
             
             if (candidatesError) {
                 console.error('Error eliminando candidatos:', candidatesError);
@@ -877,7 +912,8 @@ export const processesApi = {
         const { error: stagesError } = await supabase
             .from('stages')
             .delete()
-            .eq('process_id', id);
+            .eq('process_id', id)
+            .eq('app_name', APP_NAME);
         
         if (stagesError) {
             console.error('Error eliminando stages:', stagesError);
@@ -888,7 +924,8 @@ export const processesApi = {
         const { error: categoriesError } = await supabase
             .from('document_categories')
             .delete()
-            .eq('process_id', id);
+            .eq('process_id', id)
+            .eq('app_name', APP_NAME);
         
         if (categoriesError) {
             console.error('Error eliminando categorías:', categoriesError);
@@ -899,7 +936,8 @@ export const processesApi = {
         const { error: attachmentsError } = await supabase
             .from('attachments')
             .delete()
-            .eq('process_id', id);
+            .eq('process_id', id)
+            .eq('app_name', APP_NAME);
         
         if (attachmentsError) {
             console.warn('Error eliminando attachments del proceso:', attachmentsError);
@@ -910,7 +948,8 @@ export const processesApi = {
         const { error: formsError } = await supabase
             .from('form_integrations')
             .delete()
-            .eq('process_id', id);
+            .eq('process_id', id)
+            .eq('app_name', APP_NAME);
         
         if (formsError) {
             console.warn('Error eliminando integraciones de formularios:', formsError);
@@ -921,6 +960,7 @@ export const processesApi = {
             .from('processes')
             .delete()
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .select();
         
         if (error) {
