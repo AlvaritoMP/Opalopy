@@ -711,17 +711,24 @@ const App: React.FC = () => {
         },
         reloadSettings: async () => {
             try {
-                // No crear si no existe, solo obtener (para evitar error 409)
-                const settings = await settingsApi.get(false);
+                // Intentar obtener settings, pero si no existen, intentar crearlos
+                const settings = await settingsApi.get(true); // Permitir crear si no existe
                 console.log('🔄 reloadSettings - candidateSources:', settings.candidateSources);
                 console.log('🔄 reloadSettings - Length:', Array.isArray(settings.candidateSources) ? settings.candidateSources.length : 'N/A');
                 setState(s => ({ ...s, settings }));
                 saveSettingsToStorage(settings); // Actualizar backup local también
             } catch (error: any) {
                 console.error('Error reloading settings:', error);
-                // Si el error es que no existe, no es crítico, solo loguear
-                if (error.code === 'PGRST116') {
-                    console.warn('⚠️ Settings no existen aún, se crearán cuando se guarden por primera vez');
+                // Si el error es que no existe o hay un problema de permisos, usar localStorage como fallback
+                if (error.code === 'PGRST116' || error.code === '42501' || error.message?.includes('permission')) {
+                    console.warn('⚠️ No se pueden cargar settings desde la BD, usando localStorage como fallback');
+                    const localSettings = getSettings();
+                    if (localSettings) {
+                        console.log('📦 Usando settings del localStorage:', localSettings.candidateSources);
+                        setState(s => ({ ...s, settings: localSettings }));
+                    } else {
+                        console.warn('⚠️ No hay settings en localStorage, usando valores por defecto');
+                    }
                 }
             }
         },

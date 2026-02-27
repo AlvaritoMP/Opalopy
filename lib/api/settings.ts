@@ -93,16 +93,25 @@ export const settingsApi = {
     // Obtener configuración
     async get(createIfNotExists: boolean = true): Promise<AppSettings> {
         // Especificar explícitamente los campos JSONB para evitar problemas de parseo
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from('app_settings')
             .select('*, candidate_sources, provinces, districts')
             .eq('id', SETTINGS_ID)
             .eq('app_name', APP_NAME)
             .single();
         
+        // Si no se encuentra con app_name, NO intentar buscar por ID porque podría ser de otra app
+        // En una base de datos compartida, cada app debe tener su propio registro con su app_name
+        if (error && error.code === 'PGRST116') {
+            console.warn('⚠️ No se encontró registro con app_name =', APP_NAME);
+            console.warn('⚠️ Esto es normal si es la primera vez que se usa esta app o si los settings no se han guardado aún');
+            console.warn('⚠️ El registro se creará automáticamente cuando se guarden los settings por primera vez');
+        }
+        
         if (error) {
             // Si no existe y se permite crear, crear con valores por defecto
             if (error.code === 'PGRST116' && createIfNotExists) {
+                console.log('📝 Creando nuevo registro de settings con app_name =', APP_NAME);
                 return await this.create({
                     database: { apiUrl: '', apiToken: '' },
                     fileStorage: { provider: 'None', connected: false },
@@ -115,6 +124,7 @@ export const settingsApi = {
             // Si no se permite crear o es otro error, lanzarlo
             throw error;
         }
+        
         const settings = dbToSettings(data);
         // Log detallado para debuggear el problema de candidateSources
         console.log('📋 Settings loaded - candidateSources:', settings.candidateSources);
@@ -152,7 +162,27 @@ export const settingsApi = {
         console.log('settingsApi.update - dbData:', JSON.stringify(dbData, null, 2));
         
         // Primero obtener la configuración actual para hacer merge
-        const current = await this.get();
+        // Si no existe, usar valores por defecto
+        let current: AppSettings;
+        try {
+            current = await this.get(false); // No crear si no existe
+        } catch (error: any) {
+            if (error.code === 'PGRST116') {
+                // No existe, usar valores por defecto
+                console.log('⚠️ No existe registro de settings, usando valores por defecto para merge');
+                current = {
+                    database: { apiUrl: '', apiToken: '' },
+                    fileStorage: { provider: 'None', connected: false },
+                    currencySymbol: '$',
+                    appName: 'ATS Pro',
+                    logoUrl: '',
+                    customLabels: {},
+                };
+            } else {
+                throw error;
+            }
+        }
+        
         console.log('settingsApi.update - Current candidateSources:', current.candidateSources);
         const mergedSettings = { ...current, ...settings };
         console.log('settingsApi.update - Merged candidateSources:', mergedSettings.candidateSources);
@@ -164,7 +194,39 @@ export const settingsApi = {
         // Separar campos opcionales que pueden no existir en el esquema
         const { candidate_sources, provinces, districts, powered_by_logo_url, ...standardFields } = mergedDbData;
         
-        // Primero actualizar campos estándar
+        // Verificar si el registro existe con el app_name correcto
+        const { data: existingRecord, error: checkError } = await supabase
+            .from('app_settings')
+            .select('id, app_name')
+            .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME)
+            .single();
+        
+        // Si no existe, crear el registro primero
+        if (checkError && checkError.code === 'PGRST116') {
+            console.log('📝 El registro no existe, creándolo con app_name =', APP_NAME);
+            // Crear el registro completo con todos los campos
+            const createData = settingsToDb(mergedSettings);
+            createData.id = SETTINGS_ID;
+            createData.app_name = APP_NAME;
+            
+            const { data: createdData, error: createError } = await supabase
+                .from('app_settings')
+                .insert(createData)
+                .select('*, candidate_sources, provinces, districts')
+                .single();
+            
+            if (createError) {
+                console.error('Error creando registro de settings:', createError);
+                throw createError;
+            }
+            
+            const result = dbToSettings(createdData);
+            console.log('✅ Settings creados - candidateSources:', result.candidateSources);
+            return result;
+        }
+        
+        // Si existe, actualizar campos estándar
         const { error: standardError } = await supabase
             .from('app_settings')
             .update(standardFields)
