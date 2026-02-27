@@ -92,10 +92,10 @@ function settingsToDb(settings: Partial<AppSettings>): any {
 export const settingsApi = {
     // Obtener configuración
     async get(createIfNotExists: boolean = true): Promise<AppSettings> {
-        // Especificar explícitamente los campos JSONB para evitar problemas de parseo
+        // Usar select simple para evitar error 406
         let { data, error } = await supabase
             .from('app_settings')
-            .select('*, candidate_sources, provinces, districts')
+            .select('*')
             .eq('id', SETTINGS_ID)
             .eq('app_name', APP_NAME)
             .single();
@@ -194,100 +194,33 @@ export const settingsApi = {
         // Separar campos opcionales que pueden no existir en el esquema
         const { candidate_sources, provinces, districts, powered_by_logo_url, ...standardFields } = mergedDbData;
         
-        // Verificar si el registro existe con el app_name correcto
-        const { data: existingRecord, error: checkError } = await supabase
+        // Usar UPSERT (INSERT ... ON CONFLICT UPDATE) para simplificar y evitar errores
+        // Esto crea el registro si no existe, o lo actualiza si ya existe
+        const upsertData = settingsToDb(mergedSettings);
+        upsertData.id = SETTINGS_ID;
+        upsertData.app_name = APP_NAME;
+        
+        console.log('💾 Upserting settings with app_name =', APP_NAME);
+        console.log('💾 candidate_sources:', upsertData.candidate_sources);
+        
+        // Usar upsert con onConflict en (id, app_name)
+        const { data: upsertedData, error: upsertError } = await supabase
             .from('app_settings')
-            .select('id, app_name')
-            .eq('id', SETTINGS_ID)
-            .eq('app_name', APP_NAME)
+            .upsert(upsertData, {
+                onConflict: 'id,app_name',
+                ignoreDuplicates: false
+            })
+            .select()
             .single();
         
-        // Si no existe, crear el registro primero
-        if (checkError && checkError.code === 'PGRST116') {
-            console.log('📝 El registro no existe, creándolo con app_name =', APP_NAME);
-            // Crear el registro completo con todos los campos
-            const createData = settingsToDb(mergedSettings);
-            createData.id = SETTINGS_ID;
-            createData.app_name = APP_NAME;
-            
-            const { data: createdData, error: createError } = await supabase
-                .from('app_settings')
-                .insert(createData)
-                .select('*, candidate_sources, provinces, districts')
-                .single();
-            
-            if (createError) {
-                console.error('Error creando registro de settings:', createError);
-                throw createError;
-            }
-            
-            const result = dbToSettings(createdData);
-            console.log('✅ Settings creados - candidateSources:', result.candidateSources);
-            return result;
+        if (upsertError) {
+            console.error('Error upserting settings:', upsertError);
+            throw upsertError;
         }
         
-        // Si existe, actualizar campos estándar
-        const { error: standardError } = await supabase
-            .from('app_settings')
-            .update(standardFields)
-            .eq('id', SETTINGS_ID)
-            .eq('app_name', APP_NAME);
-        
-        if (standardError) {
-            console.error('Error updating standard settings fields:', standardError);
-            throw standardError;
-        }
-        
-        // Actualizar campos opcionales por separado (si existen)
-        const optionalFields: any = {};
-        if (candidate_sources !== undefined) {
-            optionalFields.candidate_sources = candidate_sources;
-            console.log('💾 Saving candidate_sources to DB:', candidate_sources, 'Type:', typeof candidate_sources, 'IsArray:', Array.isArray(candidate_sources), 'Length:', Array.isArray(candidate_sources) ? candidate_sources.length : 'N/A');
-        }
-        if (provinces !== undefined) optionalFields.provinces = provinces;
-        if (districts !== undefined) optionalFields.districts = districts;
-        if (powered_by_logo_url !== undefined) optionalFields.powered_by_logo_url = powered_by_logo_url;
-        
-        if (Object.keys(optionalFields).length > 0) {
-            console.log('💾 Updating optional fields:', JSON.stringify(optionalFields, null, 2));
-            const { error: optionalError, data: updateData } = await supabase
-                .from('app_settings')
-                .update(optionalFields)
-                .eq('id', SETTINGS_ID)
-                .eq('app_name', APP_NAME)
-                .select('candidate_sources');
-            
-            if (optionalError) {
-                const errorMsg = optionalError.message || '';
-                if (errorMsg.includes('schema cache') || errorMsg.includes("Could not find") || errorMsg.includes("column") || errorMsg.includes("powered_by_logo_url")) {
-                    console.warn('⚠️ Algunas columnas opcionales no existen en la base de datos. Por favor, ejecuta la migración SQL: MIGRATION_ADD_POWERED_BY_LOGO.sql. Error:', optionalError.message);
-                    // No lanzar error, permitir que continúe
-                } else {
-                    console.error('Error updating optional settings fields:', optionalError);
-                    throw optionalError;
-                }
-            } else {
-                console.log('✅ Optional fields updated. Response:', updateData);
-            }
-        }
-        
-        // Obtener configuración actualizada
-        const { data, error: fetchError } = await supabase
-            .from('app_settings')
-            .select('*, candidate_sources, provinces, districts')
-            .eq('id', SETTINGS_ID)
-            .eq('app_name', APP_NAME)
-            .single();
-        
-        if (fetchError) {
-            console.error('Error fetching updated settings:', fetchError);
-            throw fetchError;
-        }
-        
-        const result = dbToSettings(data);
-        console.log('✅ Settings updated - candidateSources in result:', result.candidateSources);
-        console.log('✅ Settings updated - candidateSources length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
-        console.log('✅ Settings updated - raw candidate_sources from DB after update:', data.candidate_sources);
+        const result = dbToSettings(upsertedData);
+        console.log('✅ Settings upserted - candidateSources:', result.candidateSources);
+        console.log('✅ Settings upserted - Length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
         return result;
     },
 };
