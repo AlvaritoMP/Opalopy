@@ -194,8 +194,7 @@ export const settingsApi = {
         // Separar campos opcionales que pueden no existir en el esquema
         const { candidate_sources, provinces, districts, powered_by_logo_url, ...standardFields } = mergedDbData;
         
-        // Usar UPSERT (INSERT ... ON CONFLICT UPDATE) para simplificar y evitar errores
-        // Esto crea el registro si no existe, o lo actualiza si ya existe
+        // Usar estrategia: primero intentar actualizar, si no existe, insertar
         const upsertData = settingsToDb(mergedSettings);
         upsertData.id = SETTINGS_ID;
         upsertData.app_name = APP_NAME;
@@ -203,24 +202,41 @@ export const settingsApi = {
         console.log('💾 Upserting settings with app_name =', APP_NAME);
         console.log('💾 candidate_sources:', upsertData.candidate_sources);
         
-        // Usar upsert con onConflict en (id, app_name)
-        const { data: upsertedData, error: upsertError } = await supabase
+        // Primero intentar actualizar
+        const { data: updatedData, error: updateError } = await supabase
             .from('app_settings')
-            .upsert(upsertData, {
-                onConflict: 'id,app_name',
-                ignoreDuplicates: false
-            })
+            .update(upsertData)
+            .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME)
             .select()
             .single();
         
-        if (upsertError) {
-            console.error('Error upserting settings:', upsertError);
-            throw upsertError;
+        if (updateError && updateError.code === 'PGRST116') {
+            // No existe, crear el registro
+            console.log('📝 Registro no existe, creándolo...');
+            const { data: insertedData, error: insertError } = await supabase
+                .from('app_settings')
+                .insert(upsertData)
+                .select()
+                .single();
+            
+            if (insertError) {
+                console.error('Error insertando settings:', insertError);
+                throw insertError;
+            }
+            
+            const result = dbToSettings(insertedData);
+            console.log('✅ Settings creados - candidateSources:', result.candidateSources);
+            console.log('✅ Settings creados - Length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
+            return result;
+        } else if (updateError) {
+            console.error('Error actualizando settings:', updateError);
+            throw updateError;
         }
         
-        const result = dbToSettings(upsertedData);
-        console.log('✅ Settings upserted - candidateSources:', result.candidateSources);
-        console.log('✅ Settings upserted - Length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
+        const result = dbToSettings(updatedData);
+        console.log('✅ Settings actualizados - candidateSources:', result.candidateSources);
+        console.log('✅ Settings actualizados - Length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
         return result;
     },
 };
