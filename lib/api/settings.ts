@@ -114,8 +114,13 @@ export const settingsApi = {
             throw error;
         }
         const settings = dbToSettings(data);
-        // Log para debuggear el problema de candidateSources
-        console.log('📋 Settings loaded - candidateSources:', settings.candidateSources, 'Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
+        // Log detallado para debuggear el problema de candidateSources
+        console.log('📋 Settings loaded - candidateSources:', settings.candidateSources);
+        console.log('📋 Raw candidate_sources from DB:', data.candidate_sources);
+        console.log('📋 Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
+        if (Array.isArray(settings.candidateSources)) {
+            console.log('📋 Length:', settings.candidateSources.length, 'Items:', settings.candidateSources);
+        }
         return settings;
     },
 
@@ -139,13 +144,17 @@ export const settingsApi = {
     async update(settings: Partial<AppSettings>): Promise<AppSettings> {
         const dbData = settingsToDb(settings);
         delete dbData.app_name; // No permitir cambiar app_name
+        console.log('settingsApi.update - Input settings.candidateSources:', settings.candidateSources);
         console.log('settingsApi.update - dbData:', JSON.stringify(dbData, null, 2));
         
         // Primero obtener la configuración actual para hacer merge
         const current = await this.get();
+        console.log('settingsApi.update - Current candidateSources:', current.candidateSources);
         const mergedSettings = { ...current, ...settings };
+        console.log('settingsApi.update - Merged candidateSources:', mergedSettings.candidateSources);
         const mergedDbData = settingsToDb(mergedSettings);
         delete mergedDbData.app_name; // No permitir cambiar app_name
+        console.log('settingsApi.update - mergedDbData candidate_sources:', mergedDbData.candidate_sources);
         console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
         
         // Separar campos opcionales que pueden no existir en el esquema
@@ -165,17 +174,22 @@ export const settingsApi = {
         
         // Actualizar campos opcionales por separado (si existen)
         const optionalFields: any = {};
-        if (candidate_sources !== undefined) optionalFields.candidate_sources = candidate_sources;
+        if (candidate_sources !== undefined) {
+            optionalFields.candidate_sources = candidate_sources;
+            console.log('💾 Saving candidate_sources to DB:', candidate_sources, 'Type:', typeof candidate_sources, 'IsArray:', Array.isArray(candidate_sources), 'Length:', Array.isArray(candidate_sources) ? candidate_sources.length : 'N/A');
+        }
         if (provinces !== undefined) optionalFields.provinces = provinces;
         if (districts !== undefined) optionalFields.districts = districts;
         if (powered_by_logo_url !== undefined) optionalFields.powered_by_logo_url = powered_by_logo_url;
         
         if (Object.keys(optionalFields).length > 0) {
-            const { error: optionalError } = await supabase
+            console.log('💾 Updating optional fields:', JSON.stringify(optionalFields, null, 2));
+            const { error: optionalError, data: updateData } = await supabase
                 .from('app_settings')
                 .update(optionalFields)
                 .eq('id', SETTINGS_ID)
-                .eq('app_name', APP_NAME);
+                .eq('app_name', APP_NAME)
+                .select('candidate_sources');
             
             if (optionalError) {
                 const errorMsg = optionalError.message || '';
@@ -186,6 +200,8 @@ export const settingsApi = {
                     console.error('Error updating optional settings fields:', optionalError);
                     throw optionalError;
                 }
+            } else {
+                console.log('✅ Optional fields updated. Response:', updateData);
             }
         }
         
@@ -203,7 +219,9 @@ export const settingsApi = {
         }
         
         const result = dbToSettings(data);
-        console.log('settingsApi.update - result:', JSON.stringify(result.googleDrive, null, 2));
+        console.log('✅ Settings updated - candidateSources in result:', result.candidateSources);
+        console.log('✅ Settings updated - candidateSources length:', Array.isArray(result.candidateSources) ? result.candidateSources.length : 'N/A');
+        console.log('✅ Settings updated - raw candidate_sources from DB after update:', data.candidate_sources);
         return result;
     },
 };

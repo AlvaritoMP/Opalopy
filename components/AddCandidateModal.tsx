@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../App';
 import { Process, Attachment, Candidate } from '../types';
 import { X, Upload, FileText, Trash2, User } from 'lucide-react';
@@ -48,6 +48,22 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [dni, setDni] = useState('');
     const [linkedinUrl, setLinkedinUrl] = useState('');
     const [address, setAddress] = useState('');
+    
+    // Recargar settings cuando se abre el modal para asegurar que tenemos la versión más reciente
+    useEffect(() => {
+        if (actions.reloadSettings) {
+            actions.reloadSettings().catch(err => {
+                console.warn('Error reloading settings in AddCandidateModal:', err);
+            });
+        }
+    }, []); // Solo al montar el componente
+    
+    // Log candidateSources cuando cambia
+    useEffect(() => {
+        const candidateSources = state.settings?.candidateSources;
+        console.log('🔍 AddCandidateModal - candidateSources changed:', candidateSources);
+        console.log('🔍 AddCandidateModal - IsArray:', Array.isArray(candidateSources), 'Length:', Array.isArray(candidateSources) ? candidateSources.length : 'N/A');
+    }, [state.settings?.candidateSources]);
     const [province, setProvince] = useState<string>('');
     const [district, setDistrict] = useState<string>('');
     const [attachments, setAttachments] = useState<Attachment[]>([]);

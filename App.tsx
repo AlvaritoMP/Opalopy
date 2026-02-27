@@ -56,6 +56,7 @@ interface AppActions {
     updateUser: (userData: User) => Promise<void>;
     deleteUser: (userId: string) => Promise<void>;
     saveSettings: (settings: AppSettings) => Promise<void>;
+    reloadSettings: () => Promise<void>;
     addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<void>;
     deleteFormIntegration: (integrationId: string) => Promise<void>;
     addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
@@ -683,6 +684,10 @@ const App: React.FC = () => {
                 // Actualizar en Supabase y obtener los settings actualizados
                 const updatedSettings = await settingsApi.update(settings);
                 
+                // Log detallado para debuggear candidateSources
+                console.log('💾 saveSettings - updatedSettings.candidateSources:', updatedSettings.candidateSources);
+                console.log('💾 saveSettings - Length:', Array.isArray(updatedSettings.candidateSources) ? updatedSettings.candidateSources.length : 'N/A');
+                
                 // Inicializar Google Drive si está configurado
                 if (updatedSettings?.googleDrive?.connected && updatedSettings.googleDrive.accessToken) {
                     googleDriveService.initialize(updatedSettings.googleDrive);
@@ -693,11 +698,22 @@ const App: React.FC = () => {
                 
                 saveSettingsToStorage(updatedSettings); // Backup local
                 setState(s => ({ ...s, settings: updatedSettings }));
-                console.log('✅ Settings actualizados en el estado:', updatedSettings.googleDrive);
+                console.log('✅ Settings actualizados en el estado. candidateSources en estado:', updatedSettings.candidateSources);
             } catch (error) {
                 console.error('Error saving settings:', error);
                 saveSettingsToStorage(settings);
                 setState(s => ({ ...s, settings }));
+            }
+        },
+        reloadSettings: async () => {
+            try {
+                const settings = await settingsApi.get();
+                console.log('🔄 reloadSettings - candidateSources:', settings.candidateSources);
+                console.log('🔄 reloadSettings - Length:', Array.isArray(settings.candidateSources) ? settings.candidateSources.length : 'N/A');
+                setState(s => ({ ...s, settings }));
+                saveSettingsToStorage(settings); // Actualizar backup local también
+            } catch (error) {
+                console.error('Error reloading settings:', error);
             }
         },
         addProcess: async (processData) => {
