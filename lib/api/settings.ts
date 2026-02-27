@@ -116,23 +116,89 @@ export const settingsApi = {
         
         // Si no hay datos, verificar si es error o simplemente no existe
         if (error) {
-            console.warn('⚠️ Error cargando settings:', error);
-        } else if (!data || data.length === 0) {
-            console.warn('⚠️ No se encontró registro con app_name =', APP_NAME);
-            console.warn('⚠️ Esto es normal si es la primera vez que se usa esta app o si los settings no se han guardado aún');
+            // Si es un error 406 (Not Acceptable), puede ser un problema temporal de Supabase
+            // Intentar una consulta más simple sin filtros complejos
+            if (error.code === '406' || error.message?.includes('406')) {
+                console.warn('⚠️ Error 406 al cargar settings, intentando consulta alternativa...');
+                const { data: altData } = await supabase
+                    .from('app_settings')
+                    .select('*')
+                    .limit(10); // Obtener todos y filtrar en memoria
+                
+                if (altData) {
+                    const matching = altData.filter(r => r.id === SETTINGS_ID && r.app_name === APP_NAME);
+                    if (matching.length > 0) {
+                        const settings = dbToSettings(matching[0]);
+                        console.log('📋 Settings loaded (alternative query) - candidateSources:', settings.candidateSources);
+                        return settings;
+                    }
+                }
+            }
+            
+            // Si es un error de red o timeout, no es crítico, usar fallback
+            const errorMsg = error.message || '';
+            const isNetworkError = errorMsg.includes('timeout') || 
+                                  errorMsg.includes('network') || 
+                                  errorMsg.includes('fetch') ||
+                                  error.code === 'PGRST301' || 
+                                  error.code === 'PGRST302';
+            
+            if (isNetworkError) {
+                // No loguear, solo lanzar para que el código superior maneje el fallback
+                throw error;
+            }
         }
         
-        // Si no existe y se permite crear, crear con valores por defecto
+        // Si no hay datos y se permite crear, intentar crear (solo si realmente no existe)
         if ((!data || data.length === 0) && createIfNotExists) {
-            console.log('📝 Creando nuevo registro de settings con app_name =', APP_NAME);
-            return await this.create({
-                database: { apiUrl: '', apiToken: '' },
-                fileStorage: { provider: 'None', connected: false },
-                currencySymbol: '$',
-                appName: 'ATS Pro',
-                logoUrl: '',
-                customLabels: {},
-            });
+            // Verificar nuevamente que realmente no existe antes de crear
+            const { data: doubleCheck, error: checkError } = await supabase
+                .from('app_settings')
+                .select('id')
+                .eq('id', SETTINGS_ID)
+                .eq('app_name', APP_NAME)
+                .limit(1);
+            
+            // Solo crear si realmente no existe
+            if ((!doubleCheck || doubleCheck.length === 0) && (!checkError || checkError.code === 'PGRST116')) {
+                try {
+                    return await this.create({
+                        database: { apiUrl: '', apiToken: '' },
+                        fileStorage: { provider: 'None', connected: false },
+                        currencySymbol: '$',
+                        appName: 'ATS Pro',
+                        logoUrl: '',
+                        customLabels: {},
+                    });
+                } catch (createError: any) {
+                    // Si falla por duplicado, intentar leer de nuevo (race condition)
+                    if (createError.code === '23505') {
+                        const { data: retryData } = await supabase
+                            .from('app_settings')
+                            .select('*')
+                            .eq('id', SETTINGS_ID)
+                            .eq('app_name', APP_NAME)
+                            .limit(1);
+                        
+                        if (retryData && retryData.length > 0) {
+                            return dbToSettings(retryData[0]);
+                        }
+                    }
+                    throw createError;
+                }
+            } else if (doubleCheck && doubleCheck.length > 0) {
+                // Existe pero la primera consulta falló, intentar leer de nuevo
+                const { data: retryData } = await supabase
+                    .from('app_settings')
+                    .select('*')
+                    .eq('id', SETTINGS_ID)
+                    .eq('app_name', APP_NAME)
+                    .limit(1);
+                
+                if (retryData && retryData.length > 0) {
+                    return dbToSettings(retryData[0]);
+                }
+            }
         }
         
         // Si hay error y no es que no existe, lanzarlo
@@ -140,12 +206,26 @@ export const settingsApi = {
             throw error;
         }
         
-        // Si llegamos aquí sin datos y no se permite crear, usar valores por defecto
-        throw new Error('Settings no encontrados y no se permite crear');
+        // Si llegamos aquí sin datos y no se permite crear, lanzar error
+        throw new Error('Settings no encontrados');
     },
 
     // Crear configuración (solo si no existe)
     async create(settings: AppSettings): Promise<AppSettings> {
+        // Verificar primero si ya existe
+        const { data: existing } = await supabase
+            .from('app_settings')
+            .select('*')
+            .eq('id', SETTINGS_ID)
+            .eq('app_name', APP_NAME)
+            .limit(1);
+        
+        // Si ya existe, retornarlo en lugar de crear
+        if (existing && existing.length > 0) {
+            console.log('✅ Registro ya existe, retornando existente');
+            return dbToSettings(existing[0]);
+        }
+        
         const dbData = settingsToDb(settings);
         dbData.id = SETTINGS_ID;
         dbData.app_name = APP_NAME;
@@ -153,11 +233,32 @@ export const settingsApi = {
         const { data, error } = await supabase
             .from('app_settings')
             .insert(dbData)
-            .select('*, candidate_sources, provinces, districts')
-            .single();
+            .select()
+            .limit(1);
         
-        if (error) throw error;
-        return dbToSettings(data);
+        if (error) {
+            // Si el error es que ya existe (race condition), intentar leer de nuevo
+            if (error.code === '23505') {
+                console.warn('⚠️ Registro ya existe (race condition), leyendo de nuevo...');
+                const { data: retryData } = await supabase
+                    .from('app_settings')
+                    .select('*')
+                    .eq('id', SETTINGS_ID)
+                    .eq('app_name', APP_NAME)
+                    .limit(1);
+                
+                if (retryData && retryData.length > 0) {
+                    return dbToSettings(retryData[0]);
+                }
+            }
+            throw error;
+        }
+        
+        if (!data || data.length === 0) {
+            throw new Error('No se pudo crear el registro de settings');
+        }
+        
+        return dbToSettings(data[0]);
     },
 
     // Actualizar configuración

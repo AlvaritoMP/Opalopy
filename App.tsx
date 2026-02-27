@@ -473,25 +473,44 @@ const App: React.FC = () => {
                             return result;
                         } catch (error: any) {
                             const errorMessage = error?.message || error?.toString() || 'Error desconocido';
+                            const errorCode = error?.code || '';
                             const isTimeout = errorMessage.includes('Timeout');
                             
+                            // Errores no críticos que no necesitan ser logueados en cada intento
+                            const isNonCriticalError = errorCode === '23505' || // Duplicate key (race condition)
+                                                      errorCode === 'PGRST116' || // Not found (esperado si no existe)
+                                                      errorCode === '406' || // Not Acceptable (problema temporal)
+                                                      errorMessage.includes('duplicate key');
+                            
                             if (attempt < maxRetries) {
-                                console.warn(`⚠ Intento ${attempt + 1} fallido para ${name}: ${errorMessage}. Reintentando...`);
+                                // Solo loguear si no es un error no crítico
+                                if (!isNonCriticalError) {
+                                    console.warn(`⚠ Intento ${attempt + 1} fallido para ${name}: ${errorMessage}. Reintentando...`);
+                                }
                                 continue;
                             }
                             
-                            // Último intento falló
-                            console.error(`❌ Failed to load ${name} from Supabase después de ${maxRetries + 1} intentos:`, error);
-                            
-                            if (isTimeout) {
-                                console.error(`⏱️ Timeout: La base de datos puede estar pausada o hay problemas de conexión. Verifica el estado de Supabase.`);
+                            // Último intento falló - solo loguear errores críticos
+                            if (!isNonCriticalError) {
+                                console.error(`❌ Failed to load ${name} from Supabase después de ${maxRetries + 1} intentos:`, error);
+                                
+                                if (isTimeout) {
+                                    console.error(`⏱️ Timeout: La base de datos puede estar pausada o hay problemas de conexión. Verifica el estado de Supabase.`);
+                                }
                             }
                             
                             if (useEmptyFallback) {
-                                console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
+                                // No loguear si es un error no crítico
+                                if (!isNonCriticalError) {
+                                    console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
+                                }
                                 return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
                             }
-                            console.warn(`⚠ Using fallback data for ${name}`);
+                            
+                            // No loguear si es un error no crítico
+                            if (!isNonCriticalError) {
+                                console.warn(`⚠ Using fallback data for ${name}`);
+                            }
                             return emptyFallback;
                         }
                     }
