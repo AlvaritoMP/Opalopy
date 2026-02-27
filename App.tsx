@@ -511,6 +511,10 @@ const App: React.FC = () => {
                     loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
                 ]);
                 
+                // Log detallado de settings cargados inicialmente
+                console.log('🚀 Initial load - settings.candidateSources:', settings.candidateSources);
+                console.log('🚀 Initial load - Length:', Array.isArray(settings.candidateSources) ? settings.candidateSources.length : 'N/A');
+                
                 // Cargar candidatos descartados (aunque estén archivados) para el conteo del Dashboard
                 let discardedCandidates: Candidate[] = [];
                 try {
@@ -707,13 +711,18 @@ const App: React.FC = () => {
         },
         reloadSettings: async () => {
             try {
-                const settings = await settingsApi.get();
+                // No crear si no existe, solo obtener (para evitar error 409)
+                const settings = await settingsApi.get(false);
                 console.log('🔄 reloadSettings - candidateSources:', settings.candidateSources);
                 console.log('🔄 reloadSettings - Length:', Array.isArray(settings.candidateSources) ? settings.candidateSources.length : 'N/A');
                 setState(s => ({ ...s, settings }));
                 saveSettingsToStorage(settings); // Actualizar backup local también
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Error reloading settings:', error);
+                // Si el error es que no existe, no es crítico, solo loguear
+                if (error.code === 'PGRST116') {
+                    console.warn('⚠️ Settings no existen aún, se crearán cuando se guarden por primera vez');
+                }
             }
         },
         addProcess: async (processData) => {

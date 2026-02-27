@@ -91,17 +91,18 @@ function settingsToDb(settings: Partial<AppSettings>): any {
 
 export const settingsApi = {
     // Obtener configuración
-    async get(): Promise<AppSettings> {
+    async get(createIfNotExists: boolean = true): Promise<AppSettings> {
+        // Especificar explícitamente los campos JSONB para evitar problemas de parseo
         const { data, error } = await supabase
             .from('app_settings')
-            .select('*')
+            .select('*, candidate_sources, provinces, districts')
             .eq('id', SETTINGS_ID)
             .eq('app_name', APP_NAME)
             .single();
         
         if (error) {
-            // Si no existe, crear con valores por defecto
-            if (error.code === 'PGRST116') {
+            // Si no existe y se permite crear, crear con valores por defecto
+            if (error.code === 'PGRST116' && createIfNotExists) {
                 return await this.create({
                     database: { apiUrl: '', apiToken: '' },
                     fileStorage: { provider: 'None', connected: false },
@@ -111,6 +112,7 @@ export const settingsApi = {
                     customLabels: {},
                 });
             }
+            // Si no se permite crear o es otro error, lanzarlo
             throw error;
         }
         const settings = dbToSettings(data);
@@ -120,6 +122,8 @@ export const settingsApi = {
         console.log('📋 Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
         if (Array.isArray(settings.candidateSources)) {
             console.log('📋 Length:', settings.candidateSources.length, 'Items:', settings.candidateSources);
+        } else {
+            console.warn('⚠️ candidateSources no es un array válido después de parsear');
         }
         return settings;
     },
@@ -133,7 +137,7 @@ export const settingsApi = {
         const { data, error } = await supabase
             .from('app_settings')
             .insert(dbData)
-            .select()
+            .select('*, candidate_sources, provinces, districts')
             .single();
         
         if (error) throw error;
@@ -208,7 +212,7 @@ export const settingsApi = {
         // Obtener configuración actualizada
         const { data, error: fetchError } = await supabase
             .from('app_settings')
-            .select('*')
+            .select('*, candidate_sources, provinces, districts')
             .eq('id', SETTINGS_ID)
             .eq('app_name', APP_NAME)
             .single();
