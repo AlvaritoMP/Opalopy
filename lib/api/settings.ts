@@ -92,50 +92,56 @@ function settingsToDb(settings: Partial<AppSettings>): any {
 export const settingsApi = {
     // Obtener configuración
     async get(createIfNotExists: boolean = true): Promise<AppSettings> {
-        // Usar select simple para evitar error 406
+        // Intentar consulta sin .single() primero para evitar error 406
         let { data, error } = await supabase
             .from('app_settings')
             .select('*')
             .eq('id', SETTINGS_ID)
             .eq('app_name', APP_NAME)
-            .single();
+            .limit(1);
         
-        // Si no se encuentra con app_name, NO intentar buscar por ID porque podría ser de otra app
-        // En una base de datos compartida, cada app debe tener su propio registro con su app_name
-        if (error && error.code === 'PGRST116') {
-            console.warn('⚠️ No se encontró registro con app_name =', APP_NAME);
-            console.warn('⚠️ Esto es normal si es la primera vez que se usa esta app o si los settings no se han guardado aún');
-            console.warn('⚠️ El registro se creará automáticamente cuando se guarden los settings por primera vez');
+        // Si hay datos, tomar el primero
+        if (data && data.length > 0) {
+            const settings = dbToSettings(data[0]);
+            console.log('📋 Settings loaded - candidateSources:', settings.candidateSources);
+            console.log('📋 Raw candidate_sources from DB:', data[0].candidate_sources);
+            console.log('📋 Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
+            if (Array.isArray(settings.candidateSources)) {
+                console.log('📋 Length:', settings.candidateSources.length, 'Items:', settings.candidateSources);
+            } else {
+                console.warn('⚠️ candidateSources no es un array válido después de parsear');
+            }
+            return settings;
         }
         
+        // Si no hay datos, verificar si es error o simplemente no existe
         if (error) {
-            // Si no existe y se permite crear, crear con valores por defecto
-            if (error.code === 'PGRST116' && createIfNotExists) {
-                console.log('📝 Creando nuevo registro de settings con app_name =', APP_NAME);
-                return await this.create({
-                    database: { apiUrl: '', apiToken: '' },
-                    fileStorage: { provider: 'None', connected: false },
-                    currencySymbol: '$',
-                    appName: 'ATS Pro',
-                    logoUrl: '',
-                    customLabels: {},
-                });
-            }
-            // Si no se permite crear o es otro error, lanzarlo
+            console.warn('⚠️ Error cargando settings:', error);
+        } else if (!data || data.length === 0) {
+            console.warn('⚠️ No se encontró registro con app_name =', APP_NAME);
+            console.warn('⚠️ Esto es normal si es la primera vez que se usa esta app o si los settings no se han guardado aún');
+        }
+        
+        // Si no existe y se permite crear, crear con valores por defecto
+        if ((!data || data.length === 0) && createIfNotExists) {
+            console.log('📝 Creando nuevo registro de settings con app_name =', APP_NAME);
+            return await this.create({
+                database: { apiUrl: '', apiToken: '' },
+                fileStorage: { provider: 'None', connected: false },
+                currencySymbol: '$',
+                appName: 'ATS Pro',
+                logoUrl: '',
+                customLabels: {},
+            });
+        }
+        
+        // Si hay error y no es que no existe, lanzarlo
+        if (error && error.code !== 'PGRST116') {
             throw error;
         }
         
-        const settings = dbToSettings(data);
-        // Log detallado para debuggear el problema de candidateSources
-        console.log('📋 Settings loaded - candidateSources:', settings.candidateSources);
-        console.log('📋 Raw candidate_sources from DB:', data.candidate_sources);
-        console.log('📋 Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
-        if (Array.isArray(settings.candidateSources)) {
-            console.log('📋 Length:', settings.candidateSources.length, 'Items:', settings.candidateSources);
-        } else {
-            console.warn('⚠️ candidateSources no es un array válido después de parsear');
-        }
-        return settings;
+        // Si llegamos aquí sin datos y no se permite crear, usar valores por defecto
+        throw new Error('Settings no encontrados y no se permite crear');
     },
 
     // Crear configuración (solo si no existe)
