@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAuthUrl, getTokensFromCode, getUserInfo, getOrCreateRootFolder, refreshAccessToken } from '../config/googleDrive.js';
+import { getAuthUrl, getTokensFromCode, getUserInfo, getOrCreateRootFolder, refreshAccessToken, getOAuth2Client } from '../config/googleDrive.js';
 
 const router = express.Router();
 

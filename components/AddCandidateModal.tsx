@@ -21,9 +21,18 @@ const fileToBase64 = (file: File): Promise<string> => {
 export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, onClose }) => {
     const { state, actions, getLabel } = useAppState();
     const getDefaultSource = (): Candidate['source'] => {
-        const sources = state.settings?.candidateSources && state.settings.candidateSources.length > 0
-            ? state.settings.candidateSources
+        // Validar que candidateSources sea un array válido
+        const candidateSources = state.settings?.candidateSources;
+        const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
+        const sources = isValidArray
+            ? candidateSources
             : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
+        
+        // Log para debuggear
+        if (!isValidArray && candidateSources !== undefined) {
+            console.warn('⚠️ candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources);
+        }
+        
         return sources[0] || 'Otro';
     };
     const [name, setName] = useState('');
@@ -197,12 +206,23 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                          <div>
                             <label className="block text-sm font-medium text-gray-700">Fuente</label>
                             <select value={source} onChange={e => setSource(e.target.value as Candidate['source'])} className="mt-1 block w-full input">
-                                {(state.settings?.candidateSources && state.settings.candidateSources.length > 0 
-                                    ? state.settings.candidateSources 
-                                    : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro']
-                                ).map(opt => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                ))}
+                                {(() => {
+                                    // Validar que candidateSources sea un array válido
+                                    const candidateSources = state.settings?.candidateSources;
+                                    const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
+                                    const sources = isValidArray
+                                        ? candidateSources
+                                        : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
+                                    
+                                    // Log para debuggear si hay problema
+                                    if (!isValidArray && candidateSources !== undefined) {
+                                        console.warn('⚠️ AddCandidateModal: candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources, 'IsArray:', Array.isArray(candidateSources));
+                                    }
+                                    
+                                    return sources.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ));
+                                })()}
                             </select>
                         </div>
 

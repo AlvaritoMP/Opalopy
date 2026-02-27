@@ -6,6 +6,51 @@ const SETTINGS_ID = '00000000-0000-0000-0000-000000000000';
 
 // Convertir de DB a tipo de aplicación
 function dbToSettings(dbSettings: any): AppSettings {
+    // Parsear candidate_sources si viene como string (puede pasar con JSONB)
+    let candidateSources: string[] | undefined = undefined;
+    if (dbSettings.candidate_sources) {
+        if (typeof dbSettings.candidate_sources === 'string') {
+            try {
+                candidateSources = JSON.parse(dbSettings.candidate_sources);
+            } catch (e) {
+                console.warn('Error parsing candidate_sources as JSON string:', e);
+                candidateSources = undefined;
+            }
+        } else if (Array.isArray(dbSettings.candidate_sources)) {
+            candidateSources = dbSettings.candidate_sources;
+        }
+    }
+    
+    // Parsear provinces si viene como string
+    let provinces: string[] | undefined = undefined;
+    if (dbSettings.provinces) {
+        if (typeof dbSettings.provinces === 'string') {
+            try {
+                provinces = JSON.parse(dbSettings.provinces);
+            } catch (e) {
+                console.warn('Error parsing provinces as JSON string:', e);
+                provinces = undefined;
+            }
+        } else if (Array.isArray(dbSettings.provinces)) {
+            provinces = dbSettings.provinces;
+        }
+    }
+    
+    // Parsear districts si viene como string
+    let districts: any | undefined = undefined;
+    if (dbSettings.districts) {
+        if (typeof dbSettings.districts === 'string') {
+            try {
+                districts = JSON.parse(dbSettings.districts);
+            } catch (e) {
+                console.warn('Error parsing districts as JSON string:', e);
+                districts = undefined;
+            }
+        } else if (typeof dbSettings.districts === 'object') {
+            districts = dbSettings.districts;
+        }
+    }
+    
     return {
         database: dbSettings.database_config || { apiUrl: '', apiToken: '' },
         fileStorage: dbSettings.file_storage_config || { provider: 'None', connected: false },
@@ -18,9 +63,9 @@ function dbToSettings(dbSettings: any): AppSettings {
         dashboardLayout: dbSettings.dashboard_layout,
         templates: dbSettings.templates,
         reportTheme: dbSettings.report_theme,
-        candidateSources: dbSettings.candidate_sources || undefined,
-        provinces: dbSettings.provinces || undefined,
-        districts: dbSettings.districts || undefined,
+        candidateSources,
+        provinces,
+        districts,
     };
 }
 
@@ -68,7 +113,10 @@ export const settingsApi = {
             }
             throw error;
         }
-        return dbToSettings(data);
+        const settings = dbToSettings(data);
+        // Log para debuggear el problema de candidateSources
+        console.log('📋 Settings loaded - candidateSources:', settings.candidateSources, 'Type:', typeof settings.candidateSources, 'IsArray:', Array.isArray(settings.candidateSources));
+        return settings;
     },
 
     // Crear configuración (solo si no existe)

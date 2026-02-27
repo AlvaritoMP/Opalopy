@@ -1020,12 +1020,23 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div><label className="block text-sm font-medium text-gray-700">Fuente</label>
                                                     <select name="source" value={editableCandidate.source || ''} onChange={handleInputChange} className="mt-1 block w-full input">
-                                                        {(state.settings?.candidateSources && state.settings.candidateSources.length > 0 
-                                                            ? state.settings.candidateSources 
-                                                            : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro']
-                                                        ).map(opt => (
-                                                            <option key={opt} value={opt}>{opt}</option>
-                                                        ))}
+                                                        {(() => {
+                                                            // Validar que candidateSources sea un array válido
+                                                            const candidateSources = state.settings?.candidateSources;
+                                                            const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
+                                                            const sources = isValidArray
+                                                                ? candidateSources
+                                                                : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
+                                                            
+                                                            // Log para debuggear si hay problema
+                                                            if (!isValidArray && candidateSources !== undefined) {
+                                                                console.warn('⚠️ CandidateDetailsModal: candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources, 'IsArray:', Array.isArray(candidateSources));
+                                                            }
+                                                            
+                                                            return sources.map(opt => (
+                                                                <option key={opt} value={opt}>{opt}</option>
+                                                            ));
+                                                        })()}
                                                     </select>
                                                 </div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Expectativa salarial</label><input type="text" name="salaryExpectation" value={editableCandidate.salaryExpectation || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
