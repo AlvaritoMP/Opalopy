@@ -319,7 +319,7 @@ export const Letters: React.FC = () => {
     const [editingField, setEditingField] = useState<string | null>(null);
 
     const savedTemplates = state.settings?.templates || [];
-    const companyName = state.settings?.appName || 'ATS Pro';
+    const companyName = state.settings?.appName || 'Opalopy';
     const selectedCandidate = useMemo(() => state.candidates.find(c => c.id === candidateId), [state.candidates, candidateId]);
     const selectedProcess = useMemo(() => {
         if (!selectedCandidate) return undefined;

@@ -26,6 +26,14 @@ export interface DocumentCategory {
     required: boolean; // Si es requerido para el proceso
 }
 
+export interface Client {
+    id: string;
+    razonSocial: string;
+    ruc: string;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
 export interface Process {
     id: string;
     title: string;
@@ -47,6 +55,32 @@ export interface Process {
     googleDriveFolderName?: string; // Nombre de la carpeta (para mostrar)
     publishedDate?: string; // Fecha de publicación de la oferta (para Time to Hire)
     needIdentifiedDate?: string; // Fecha de identificación de necesidad (para Time to Fill)
+    clientId?: string; // ID del cliente al que pertenece el proceso
+    client?: Client; // Información del cliente (opcional, para cuando se carga con JOIN)
+    isBulkProcess?: boolean; // Indica si es un proceso masivo (se gestiona en Procesos Masivos, no en Procesos normal)
+    bulkConfig?: BulkProcessConfig; // Configuración específica para procesos masivos
+    hiredCandidateIds?: string[]; // IDs de candidatos contratados al cerrar el proceso
+    closedAt?: string; // Fecha y hora en que se cerró el proceso
+}
+
+// Configuración para procesos masivos
+export interface BulkProcessConfig {
+    killerQuestions?: KillerQuestion[]; // Preguntas automáticas que filtran candidatos
+    aiPrompt?: string; // Prompt específico para OpenAI al analizar CVs
+    scoreThreshold?: number; // Score mínimo (0-100) para que un candidato aparezca en la vista principal
+    whatsappEnabled?: boolean; // Habilitar acceso rápido a WhatsApp
+    whatsappMessageTemplate?: string; // Plantilla de mensaje para WhatsApp
+    autoFilterEnabled?: boolean; // Activar filtrado automático basado en killer questions y score
+}
+
+// Pregunta "killer" para filtrado automático en procesos masivos
+export interface KillerQuestion {
+    id: string;
+    question: string; // Texto de la pregunta
+    type: 'yes_no' | 'multiple_choice'; // Tipo de pregunta
+    options?: string[]; // Opciones para multiple_choice
+    correctAnswer: string | string[]; // Respuesta(s) correcta(s) que permiten pasar el filtro
+    required: boolean; // Si es requerida para pasar
 }
 
 export interface CandidateHistory {
@@ -110,6 +144,8 @@ export interface Candidate {
     applicationStartedDate?: string; // Fecha de inicio de solicitud (para Application Completion Rate)
     applicationCompletedDate?: string; // Fecha de finalización de solicitud (para Application Completion Rate)
     criticalStageReviewedAt?: string; // Fecha en que un usuario revisó el candidato en etapa crítica (para ocultar alertas)
+    metadataIa?: string; // Resumen/metadata generado por IA (OpenAI)
+    scoreIa?: number; // Score/puntuación generado por IA
 }
 
 export type UserRole = 'admin' | 'recruiter' | 'client' | 'viewer';
@@ -153,6 +189,7 @@ export type Section =
     | 'reports' 
     | 'compare' 
     | 'bulk-import' 
+    | 'bulk-processes'
     | 'users' 
     | 'settings';
 
@@ -186,7 +223,7 @@ export interface GoogleDriveConfig {
     tokenExpiry?: string;
     userEmail?: string;
     userName?: string;
-    rootFolderId?: string; // Carpeta raíz en Google Drive (puede ser "ATS Pro" o cualquier otra)
+    rootFolderId?: string; // Carpeta raíz en Google Drive (puede ser "Opalopy" o cualquier otra)
     rootFolderName?: string; // Nombre de la carpeta raíz
 }
 
@@ -225,6 +262,13 @@ export interface FormIntegration {
     formIdOrUrl: string;
     processId: string;
     webhookUrl: string;
+    fieldMapping?: FieldMapping; // Mapeo personalizado de campos
+}
+
+// Mapeo de campos: campo de Tally -> campo del candidato
+export interface FieldMapping {
+    // Campo en Tally (key o label) -> Campo en el candidato
+    [tallyField: string]: string;
 }
 
 export interface InterviewEvent {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppState } from '../App';
-import { Plus, Trash2, Link as LinkIcon, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, Link as LinkIcon, ExternalLink, Edit2 } from 'lucide-react';
 import { FormEditorModal } from './FormEditorModal'; // This is now the FormIntegrationModal
 import { FormIntegration } from '../types';
 
@@ -27,11 +27,22 @@ const PlatformLogo: React.FC<{platform: string}> = ({platform}) => {
 export const Forms: React.FC = () => {
     const { state, actions, getLabel } = useAppState();
     const [isEditorOpen, setIsEditorOpen] = useState(false);
+    const [editingIntegration, setEditingIntegration] = useState<FormIntegration | null>(null);
     
     const handleDelete = (formId: string) => {
         if (window.confirm('¿Seguro que quieres eliminar esta integración? Esto no eliminará el formulario en la plataforma original.')) {
             actions.deleteFormIntegration(formId);
         }
+    };
+
+    const handleEdit = (integration: FormIntegration) => {
+        setEditingIntegration(integration);
+        setIsEditorOpen(true);
+    };
+
+    const handleCloseEditor = () => {
+        setIsEditorOpen(false);
+        setEditingIntegration(null);
     };
 
     return (
@@ -67,20 +78,41 @@ export const Forms: React.FC = () => {
                              const process = state.processes.find(p => p.id === integration.processId);
                              return (
                                 <li key={integration.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
-                                    <div className="flex items-center">
+                                    <div className="flex items-center flex-1">
                                         <PlatformLogo platform={integration.platform} />
-                                        <div>
+                                        <div className="flex-1">
                                             <p className="text-sm font-medium text-gray-900">{integration.formName}</p>
                                             <p className="text-sm text-gray-500">
                                                 Vinculado a: <span className="font-medium">{process?.title || 'Proceso desconocido'}</span>
                                             </p>
+                                            {integration.fieldMapping && Object.keys(integration.fieldMapping).length > 0 && (
+                                                <p className="text-xs text-blue-600 mt-1">
+                                                    Mapeo personalizado configurado ({Object.keys(integration.fieldMapping).length} campos)
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center space-x-4">
-                                         <a href="#" className="text-sm text-primary-600 hover:text-primary-800 flex items-center">
+                                    <div className="flex items-center space-x-2">
+                                         <a 
+                                            href={integration.formIdOrUrl} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-sm text-primary-600 hover:text-primary-800 flex items-center px-2 py-1 rounded-md hover:bg-primary-50"
+                                         >
                                             Ver formulario <ExternalLink className="w-4 h-4 ml-1"/>
                                          </a>
-                                         <button onClick={() => handleDelete(integration.id)} className="p-2 rounded-md hover:bg-red-100" title="Eliminar integración">
+                                         <button 
+                                            onClick={() => handleEdit(integration)} 
+                                            className="p-2 rounded-md hover:bg-blue-100" 
+                                            title="Editar integración"
+                                         >
+                                            <Edit2 className="w-4 h-4 text-blue-600" />
+                                        </button>
+                                         <button 
+                                            onClick={() => handleDelete(integration.id)} 
+                                            className="p-2 rounded-md hover:bg-red-100" 
+                                            title="Eliminar integración"
+                                         >
                                             <Trash2 className="w-4 h-4 text-red-500" />
                                         </button>
                                     </div>
@@ -91,7 +123,10 @@ export const Forms: React.FC = () => {
                 </div>
             )}
              {isEditorOpen && (
-                <FormEditorModal form={null} onClose={() => setIsEditorOpen(false)} />
+                <FormEditorModal 
+                    integration={editingIntegration} 
+                    onClose={handleCloseEditor} 
+                />
             )}
         </div>
     );

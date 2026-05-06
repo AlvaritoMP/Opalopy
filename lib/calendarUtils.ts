@@ -23,7 +23,7 @@ export const generateICSFile = (
   let icsContent = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//ATS Pro//Interview Scheduler//EN',
+    'PRODID:-//Opalopy//Interview Scheduler//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:REQUEST',
     'BEGIN:VEVENT',

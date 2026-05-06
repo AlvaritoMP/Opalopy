@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { initialProcesses, initialCandidates, initialUsers, initialSettings, initialFormIntegrations, initialInterviewEvents } from './lib/data';
 import { Process, Candidate, User, AppSettings, FormIntegration, InterviewEvent, CandidateHistory, Application, PostIt, Comment, Section, UserRole } from './types';
 import { getSettings, saveSettings as saveSettingsToStorage } from './lib/settings';
-import { usersApi, processesApi, candidatesApi, postItsApi, commentsApi, interviewsApi, settingsApi, setCurrentUser } from './lib/api/index';
-import { isCorsError, getErrorMessage } from './lib/supabase';
+import { usersApi, processesApi, candidatesApi, postItsApi, commentsApi, interviewsApi, settingsApi, formIntegrationsApi, setCurrentUser } from './lib/api/index';
+import { isCorsError, getErrorMessage, isSupabaseConfigured } from './lib/supabase';
 import { googleDriveService } from './lib/googleDrive';
 import { Dashboard } from './components/Dashboard';
 import { ProcessList } from './components/ProcessList';
@@ -15,11 +15,12 @@ import { Candidates as CandidatesView } from './components/Candidates';
 import { Forms } from './components/Forms';
 import { CalendarView } from './components/CalendarView';
 import { BulkImportView } from './components/BulkImportView';
+import { BulkProcessesView } from './components/BulkProcessesView';
 import { Spinner } from './components/Spinner';
 import { ArchivedCandidates } from './components/ArchivedCandidates';
 import { Letters } from './components/Letters';
 import { ToastContainer } from './components/Toast';
-import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw, Menu } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw, Menu, Grid3x3 } from 'lucide-react';
 import { CandidateComparator } from './components/CandidateComparator';
 
 
@@ -47,7 +48,7 @@ interface AppActions {
     deleteProcess: (processId: string) => Promise<void>;
     reloadProcesses: () => Promise<void>;
     reloadCandidates: () => Promise<void>;
-    addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<void>;
+    addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<Candidate>;
     updateCandidate: (candidateData: Candidate, movedBy?: string) => Promise<void>;
     deleteCandidate: (candidateId: string) => Promise<void>;
     moveCandidateToProcess: (candidateId: string, targetProcessId: string) => Promise<void>;
@@ -56,8 +57,8 @@ interface AppActions {
     updateUser: (userData: User) => Promise<void>;
     deleteUser: (userId: string) => Promise<void>;
     saveSettings: (settings: AppSettings) => Promise<void>;
-    reloadSettings: () => Promise<void>;
-    addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<void>;
+    addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<FormIntegration>;
+    updateFormIntegration: (integrationId: string, integrationData: Partial<FormIntegration>) => Promise<void>;
     deleteFormIntegration: (integrationId: string) => Promise<void>;
     addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
     updateInterviewEvent: (eventData: InterviewEvent) => Promise<void>;
@@ -82,59 +83,6 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-
-const __DEV__ = typeof import.meta !== 'undefined' && import.meta.env?.DEV;
-
-type ShowToastFn = (message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => string;
-
-function handleReloadError(
-    error: any,
-    showToast: ShowToastFn,
-    lastCorsErrorTimeRef: React.MutableRefObject<number>,
-    CORS_DEBOUNCE_MS: number
-): void {
-    if (isCorsError(error)) {
-        const now = Date.now();
-        if (now - lastCorsErrorTimeRef.current >= CORS_DEBOUNCE_MS) {
-            lastCorsErrorTimeRef.current = now;
-            showToast(getErrorMessage(error), 'error', 15000);
-        }
-        return;
-    }
-    const errorMessage = error?.message || '';
-    const errorCode = error?.code || '';
-    const isQuotaError = ['quota', 'egress', 'limit', 'exceeded'].some(t => errorMessage.includes(t)) || errorCode === 'PGRST301' || errorCode === 'PGRST302';
-    if (isQuotaError) {
-        showToast('⚠️ Límite de transferencia de Supabase alcanzado. Algunos cambios pueden no verse. Considera actualizar tu plan.', 'error', 10000);
-    } else {
-        const isNetworkError = ['network', 'timeout', 'fetch'].some(t => errorMessage.includes(t));
-        if (isNetworkError) {
-            showToast('⚠️ Problema de conexión. Los cambios pueden no verse en tiempo real.', 'info', 5000);
-        }
-    }
-}
-
-type ErrorContext = { entity: string; action: 'create' | 'update' | 'delete' | 'archive' | 'restore' | 'discard' };
-
-function showApiErrorToast(error: any, showToast: ShowToastFn, context: ErrorContext): void {
-    const errorMessage = error?.message || 'Operación no completada.';
-    const isPermissionError = error?.code === '42501' || error?.code === 'PGRST301' || /permission|permiso/i.test(errorMessage);
-    const entityLabel = context.entity === 'process' ? 'procesos' : context.entity === 'candidate' ? 'candidatos' : context.entity;
-    const actionLabels: Record<ErrorContext['action'], string> = {
-        create: 'crear',
-        update: 'actualizar',
-        delete: 'eliminar',
-        archive: 'archivar',
-        restore: 'restaurar',
-        discard: 'descartar',
-    };
-    const actionLabel = actionLabels[context.action];
-    if (isPermissionError) {
-        showToast(`Error de permisos: No tienes permisos para ${actionLabel} ${entityLabel}. Verifica tu rol de usuario.`, 'error', 7000);
-    } else {
-        showToast(`Error al ${actionLabel} ${entityLabel}: ${errorMessage}`, 'error', 7000);
-    }
-}
 
 const ForgotPasswordModal: React.FC<{onClose: () => void}> = ({ onClose }) => {
     const [email, setEmail] = useState('');
@@ -222,7 +170,7 @@ const LoginPage: React.FC = () => {
                 <div className="w-full max-w-sm p-8 space-y-6 bg-white rounded-xl shadow-lg">
                     <div className="text-center">
                         {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-12 mx-auto mb-4 object-contain" />}
-                        <h1 className="text-3xl font-bold text-gray-900">{state.settings?.appName || 'ATS Pro'}</h1>
+                        <h1 className="text-3xl font-bold text-gray-900">{state.settings?.appName || 'Opalopy'}</h1>
                         <p className="mt-2 text-sm text-gray-600">Please sign in to your account</p>
                     </div>
                     <form className="space-y-6" onSubmit={handleLogin}>
@@ -283,16 +231,19 @@ const LoginPage: React.FC = () => {
 const getVisibleSections = (user: User | null): Section[] => {
     if (!user) return [];
     if (user.visibleSections && user.visibleSections.length > 0) {
+        console.log('🔍 Usuario con secciones personalizadas:', user.visibleSections);
         return user.visibleSections;
     }
     // Secciones por defecto según rol
     const defaultSections: Record<UserRole, Section[]> = {
-        admin: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import', 'users', 'settings'],
-        recruiter: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import'],
+        admin: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import', 'bulk-processes', 'users', 'settings'],
+        recruiter: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import', 'bulk-processes'],
         client: ['dashboard', 'processes', 'candidates', 'calendar', 'reports', 'compare'],
         viewer: ['dashboard', 'processes', 'candidates', 'calendar', 'reports']
     };
-    return defaultSections[user.role] || [];
+    const sections = defaultSections[user.role] || [];
+    console.log('🔍 Usuario:', user.role, 'Secciones visibles:', sections);
+    return sections;
 };
 
 const NavItem: React.FC<{
@@ -328,7 +279,19 @@ const Sidebar: React.FC = () => {
     if (!state.currentUser) return null;
     
     const visibleSections = getVisibleSections(state.currentUser);
-    const canSeeSection = (section: Section) => visibleSections.includes(section);
+    const canSeeSection = (section: Section) => {
+        const canSee = visibleSections.includes(section);
+        if (section === 'bulk-processes') {
+            console.log('🔍 Verificando bulk-processes:', {
+                canSee,
+                visibleSections,
+                userRole: state.currentUser.role,
+                hasCustomSections: !!state.currentUser.visibleSections,
+                customSections: state.currentUser.visibleSections
+            });
+        }
+        return canSee;
+    };
 
     return (
         <>
@@ -357,7 +320,7 @@ const Sidebar: React.FC = () => {
                     {!isCollapsed && (
                          <div className="flex items-center overflow-hidden">
                             {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-8 mr-2 object-contain" />}
-                            <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'ATS Pro'}</span>
+                            <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'Opalopy'}</span>
                         </div>
                     )}
                     <button 
@@ -381,6 +344,7 @@ const Sidebar: React.FC = () => {
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {canSeeSection('dashboard') && <NavItem icon={LayoutDashboard} label={getLabel('sidebar_dashboard', 'Panel')} view="dashboard" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('processes') && <NavItem icon={Briefcase} label={getLabel('sidebar_processes', 'Procesos')} view="processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
+                {canSeeSection('bulk-processes') && <NavItem icon={Grid3x3} label={getLabel('sidebar_bulk_processes', 'Procesos Masivos')} view="bulk-processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('archived') && <NavItem icon={Archive} label={getLabel('sidebar_archived', 'Archivados')} view="archived" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('candidates') && <NavItem icon={UsersIcon} label={getLabel('menu_candidates', 'Candidatos')} view="candidates" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('forms') && <NavItem icon={FileText} label={getLabel('sidebar_forms', 'Formularios')} view="forms" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
@@ -496,67 +460,48 @@ const App: React.FC = () => {
     useEffect(() => {
         const loadData = async () => {
             try {
-                if (__DEV__) console.log('Loading data from Supabase...');
+                // Verificar si Supabase está configurado
+                if (!isSupabaseConfigured()) {
+                    console.warn('⚠️ Supabase no está configurado. La aplicación funcionará en modo limitado.');
+                    console.warn('Por favor, configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env.local');
+                    
+                    // Cargar settings desde localStorage si existen
+                    const localSettings = getSettings();
+                    setState(s => ({
+                        ...s,
+                        settings: localSettings || initialSettings,
+                        loading: false,
+                    }));
+                    return;
+                }
                 
-                // Cargar datos de Supabase con timeouts aumentados y reintentos
+                console.log('Loading data from Supabase...');
+                
+                // Cargar datos de Supabase con timeouts y mejor manejo de errores
                 const loadWithEmptyFallback = async <T,>(
                     apiCall: () => Promise<T>,
                     emptyFallback: T,
                     name: string,
                     useEmptyFallback: boolean = false
                 ): Promise<T> => {
-                    const maxRetries = 2;
-                    const timeoutMs = 30000; // 30 segundos (aumentado de 10s)
-                    
-                    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                        try {
-                            if (attempt > 0 && __DEV__) {
-                                console.log(`Reintentando cargar ${name} (intento ${attempt + 1}/${maxRetries + 1})...`);
-                                // Esperar antes de reintentar (backoff exponencial)
-                                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                            }
-                            
-                            const result = await Promise.race([
-                                apiCall(),
-                                new Promise<T>((_, reject) => 
-                                    setTimeout(() => reject(new Error(`Timeout después de ${timeoutMs/1000}s`)), timeoutMs)
-                                )
-                            ]                            );
-                            if (__DEV__) console.log(`Loaded ${name} from Supabase`);
-                            return result;
-                        } catch (error: any) {
-                            const errorMessage = error?.message || error?.toString() || 'Error desconocido';
-                            const errorCode = error?.code || '';
-                            const isTimeout = errorMessage.includes('Timeout');
-                            
-                            // Errores no críticos que no necesitan ser logueados en cada intento
-                            const isNonCriticalError = errorCode === '23505' || // Duplicate key (race condition)
-                                                      errorCode === 'PGRST116' || // Not found (esperado si no existe)
-                                                      errorCode === '406' || // Not Acceptable (problema temporal)
-                                                      errorMessage.includes('duplicate key');
-                            
-                            if (attempt < maxRetries) {
-                                if (!isNonCriticalError && __DEV__) console.warn(`Intento ${attempt + 1} fallido para ${name}:`, errorMessage);
-                                continue;
-                            }
-                            
-                            if (!isNonCriticalError && __DEV__) {
-                                console.error(`Failed to load ${name} from Supabase:`, error);
-                                if (isTimeout) console.error('Timeout: verifica el estado de Supabase.');
-                            }
-                            
-                            if (useEmptyFallback) {
-                                if (!isNonCriticalError && __DEV__) console.warn(`Using empty array for ${name}`);
-                                return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
-                            }
-                            
-                            if (!isNonCriticalError && __DEV__) console.warn(`Using fallback data for ${name}`);
-                            return emptyFallback;
+                    try {
+                        const result = await Promise.race([
+                            apiCall(),
+                            new Promise<T>((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 10000)
+                            )
+                        ]);
+                        console.log(`✓ Loaded ${name} from Supabase`);
+                        return result;
+                    } catch (error) {
+                        console.error(`❌ Failed to load ${name} from Supabase:`, error);
+                        if (useEmptyFallback) {
+                            console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
+                            return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
                         }
+                        console.warn(`⚠ Using fallback data for ${name}`);
+                        return emptyFallback;
                     }
-                    
-                    // Nunca debería llegar aquí, pero por si acaso
-                    return useEmptyFallback ? (Array.isArray(emptyFallback) ? [] : emptyFallback) as T : emptyFallback;
                 };
 
                 // Para procesos, candidatos y usuarios, usar arrays vacíos si falla (no datos de prueba)
@@ -570,15 +515,13 @@ const App: React.FC = () => {
                     loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
                 ]);
                 
-                if (__DEV__) console.log('Initial load - settings loaded');
-                
                 // Cargar candidatos descartados (aunque estén archivados) para el conteo del Dashboard
                 let discardedCandidates: Candidate[] = [];
                 try {
                     const allArchived = await candidatesApi.getAll(true, true); // true = include archived
                     discardedCandidates = allArchived.filter(c => c.discarded === true);
                 } catch (error) {
-                    if (__DEV__) console.warn('Error cargando candidatos descartados:', error);
+                    console.warn('Error cargando candidatos descartados:', error);
                 }
                 
                 // Combinar candidatos activos y descartados, evitando duplicados
@@ -603,11 +546,49 @@ const App: React.FC = () => {
                     }
                 }
 
-                if (__DEV__) console.log('Data loaded successfully');
+                console.log('✓ Data loaded successfully');
                 
                 // Inicializar Google Drive si está configurado
                 if (settings?.googleDrive?.connected && settings.googleDrive.accessToken) {
-                    googleDriveService.initialize(settings.googleDrive);
+                    console.log('🔧 Configurando Google Drive:', {
+                        hasAccessToken: !!settings.googleDrive.accessToken,
+                        hasRefreshToken: !!settings.googleDrive.refreshToken,
+                        refreshTokenLength: settings.googleDrive.refreshToken?.length || 0,
+                        tokenExpiry: settings.googleDrive.tokenExpiry
+                    });
+                    
+                    // Configurar callback para actualizar tokens en settings cuando se refrescan
+                    googleDriveService.setTokenUpdateCallback(async (accessToken, refreshToken, expiresIn) => {
+                        try {
+                            const updatedGoogleDrive = {
+                                ...settings.googleDrive!,
+                                accessToken,
+                                refreshToken: refreshToken || settings.googleDrive!.refreshToken, // Preservar refresh token si no se proporciona uno nuevo
+                                tokenExpiry: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : settings.googleDrive!.tokenExpiry,
+                            };
+                            console.log('💾 Actualizando tokens en settings:', {
+                                hasAccessToken: !!updatedGoogleDrive.accessToken,
+                                hasRefreshToken: !!updatedGoogleDrive.refreshToken,
+                                refreshTokenLength: updatedGoogleDrive.refreshToken?.length || 0
+                            });
+                            const updatedSettings = await settingsApi.update({ googleDrive: updatedGoogleDrive });
+                            setState(s => ({ ...s, settings: updatedSettings }));
+                            console.log('✅ Token de Google Drive actualizado en settings');
+                        } catch (error) {
+                            console.error('❌ Error actualizando token en settings:', error);
+                        }
+                    });
+                    
+                    // Inicializar (puede refrescar el token si está expirado)
+                    try {
+                        await googleDriveService.initialize(settings.googleDrive);
+                    } catch (error: any) {
+                        console.error('❌ Error inicializando Google Drive:', error);
+                        // Si falla la inicialización, mostrar mensaje pero no bloquear la app
+                        if (error.message?.includes('refresh token')) {
+                            console.warn('⚠️ Google Drive requiere reconexión. El usuario deberá reconectar en Settings.');
+                        }
+                    }
                 }
                 
                 setState({
@@ -616,7 +597,7 @@ const App: React.FC = () => {
                     users,
                     applications: [],
                     settings,
-                    formIntegrations: initialFormIntegrations, // TODO: Implementar API
+                    formIntegrations: await loadWithEmptyFallback(() => formIntegrationsApi.getAll(), initialFormIntegrations, 'formIntegrations', true),
                     interviewEvents,
                     currentUser,
                     view: { type: 'dashboard' },
@@ -625,7 +606,7 @@ const App: React.FC = () => {
                     toasts: [],
                 });
             } catch (error) {
-                if (__DEV__) console.error('Error loading data:', error);
+                console.error('Error loading data:', error);
                 // NO usar datos de prueba como fallback - usar arrays vacíos
                 const loadedSettings = getSettings();
                 const sessionUserId = localStorage.getItem('ats_pro_user');
@@ -635,18 +616,18 @@ const App: React.FC = () => {
                     try {
                         currentUser = await usersApi.getById(sessionUserId);
                     } catch (err) {
-                        if (__DEV__) console.error('Error loading current user:', err);
+                        console.error('Error loading current user:', err);
                     }
                 }
                 
-                if (__DEV__) console.warn('Using empty arrays - no fallback data');
+                console.warn('⚠ Using empty arrays - no fallback data');
                 setState({
                     processes: [],
                     candidates: [],
                     users: [],
                     applications: [],
                     settings: loadedSettings || initialSettings,
-                    formIntegrations: initialFormIntegrations,
+                    formIntegrations: [],
                     interviewEvents: [],
                     currentUser,
                     view: { type: 'dashboard' },
@@ -689,7 +670,7 @@ const App: React.FC = () => {
                 }
                 return false;
             } catch (error) {
-                if (__DEV__) console.error('Login error:', error);
+                console.error('Login error:', error);
                 // Fallback a búsqueda local
                 const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase());
                 if (user && user.password === password) {
@@ -708,21 +689,35 @@ const App: React.FC = () => {
             setState(s => {
                 // Si se está navegando a un proceso específico, guardar como último proceso visto
                 if (type === 'process-view' && payload) {
+                    console.log('📌 Guardando último proceso visto:', payload);
                     return { ...s, view: { type, payload }, lastViewedProcessId: payload };
                 }
+                // Si se está navegando a la lista de procesos
                 if (type === 'processes') {
+                    // Si payload es explícitamente null, limpiar y mostrar lista (botón retroceso)
                     if (payload === null) {
+                        console.log('🔙 Limpiando último proceso visto (botón retroceso)');
                         return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                     }
+                    // Si hay un último proceso visto (navegación desde sidebar o cualquier otra)
+                    // ir directamente a ese proceso, a menos que payload sea explícitamente null
                     if (s.lastViewedProcessId) {
+                        // Verificar que el proceso aún existe
                         const processExists = s.processes.some(p => p.id === s.lastViewedProcessId);
                         if (processExists) {
+                            console.log('🔄 Navegando al último proceso visto:', s.lastViewedProcessId);
                             return { ...s, view: { type: 'process-view', payload: s.lastViewedProcessId } };
+                        } else {
+                            console.log('⚠️ Último proceso visto ya no existe, limpiando');
+                            return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                         }
-                        return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                     }
+                    // Si no hay último proceso visto, mostrar lista
+                    console.log('📋 Mostrando lista de procesos (sin último proceso visto)');
                     return { ...s, view: { type, payload: undefined } };
                 }
+                // Para cualquier otra navegación, mantener el último proceso visto
+                console.log('📍 Navegando a:', type, '(manteniendo último proceso visto:', s.lastViewedProcessId, ')');
                 return { ...s, view: { type, payload } };
             });
         },
@@ -741,23 +736,11 @@ const App: React.FC = () => {
                 
                 saveSettingsToStorage(updatedSettings); // Backup local
                 setState(s => ({ ...s, settings: updatedSettings }));
+                console.log('✅ Settings actualizados en el estado:', updatedSettings.googleDrive);
             } catch (error) {
-                if (__DEV__) console.error('Error saving settings:', error);
+                console.error('Error saving settings:', error);
                 saveSettingsToStorage(settings);
                 setState(s => ({ ...s, settings }));
-            }
-        },
-        reloadSettings: async () => {
-            try {
-                const settings = await settingsApi.get(true);
-                setState(s => ({ ...s, settings }));
-                saveSettingsToStorage(settings);
-            } catch (error: any) {
-                if (__DEV__) console.error('Error reloading settings:', error);
-                if (error.code === 'PGRST116' || error.code === '42501' || error.message?.includes('permission')) {
-                    const localSettings = getSettings();
-                    if (localSettings) setState(s => ({ ...s, settings: localSettings }));
-                }
             }
         },
         addProcess: async (processData) => {
@@ -783,11 +766,13 @@ const App: React.FC = () => {
                         const folder = await googleDriveService.createFolder(folderNameToCreate, rootFolderId);
                         folderId = folder.id;
                         folderName = folder.name;
+                        console.log(`✅ Carpeta creada automáticamente en Google Drive: ${folderName}`);
                         hideToastHelper(folderToastId);
                         const savingToastId = showToastHelper('Guardando proceso...', 'loading', 0);
                         hideToastHelper(savingToastId);
                     } catch (error: any) {
-                        if (__DEV__) console.error('Error creando carpeta automáticamente:', error);
+                        console.error('Error creando carpeta automáticamente:', error);
+                        // Continuar sin carpeta si falla
                     }
                 }
                 
@@ -797,7 +782,9 @@ const App: React.FC = () => {
                     googleDriveFolderName: folderName,
                 };
                 
+                // Crear proceso en la base de datos
                 const newProcess = await processesApi.create(processDataWithFolder, state.currentUser?.id);
+                console.log('✅ Proceso creado en la base de datos:', newProcess.id);
                 
                 // Actualizar estado local
                 setState(s => ({ ...s, processes: [...s.processes, newProcess] }));
@@ -807,8 +794,20 @@ const App: React.FC = () => {
                 
                 return newProcess;
             } catch (error: any) {
+                console.error('Error adding process:', error);
                 hideToastHelper(loadingToastId);
-                showApiErrorToast(error, showToastHelper, { entity: 'process', action: 'create' });
+                // Verificar si es un error de permisos
+                const errorMessage = error.message || 'No se pudo crear el proceso en la base de datos.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para crear procesos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al crear proceso: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO crear proceso local si falla en BD - esto causa que aparezca pero no se guarde
+                // Re-lanzar el error para que el componente pueda manejarlo
                 throw error;
             }
         },
@@ -828,15 +827,28 @@ const App: React.FC = () => {
                 setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? updated : p) }));
                     }
                 } catch (reloadError) {
-                    if (__DEV__) console.warn('Error recargando proceso después de actualizar:', reloadError);
+                    console.warn('Error recargando proceso después de actualizar, usando el retornado:', reloadError);
                     setState(s => ({ ...s, processes: s.processes.map(p => p.id === processData.id ? updated : p) }));
                 }
                 
                 hideToastHelper(loadingToastId);
                 showToastHelper('Proceso actualizado exitosamente', 'success');
             } catch (error: any) {
+                console.error('Error updating process:', error);
                 hideToastHelper(loadingToastId);
-                showApiErrorToast(error, showToastHelper, { entity: 'process', action: 'update' });
+                
+                // Verificar si es un error de permisos
+                const errorMessage = error.message || 'No se pudo actualizar el proceso en la base de datos.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para actualizar procesos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al actualizar proceso: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO actualizar estado local si falla en BD - esto causa que parezca guardado pero no se guarde
+                // Re-lanzar el error para que el componente pueda manejarlo
                 throw error;
             }
         },
@@ -845,8 +857,59 @@ const App: React.FC = () => {
                 const processes = await processesApi.getAll();
                 setState(s => ({ ...s, processes }));
             } catch (error: any) {
-                if (__DEV__) console.error('Error reloading processes:', error);
-                handleReloadError(error, showToastHelper, lastCorsErrorTime, CORS_ERROR_DEBOUNCE_MS);
+                console.error('Error reloading processes:', error);
+                
+                // Detectar errores de CORS (con debouncing para evitar mensajes repetitivos)
+                if (isCorsError(error)) {
+                    const now = Date.now();
+                    const timeSinceLastError = now - lastCorsErrorTime.current;
+                    
+                    // Solo mostrar el mensaje si han pasado al menos 5 minutos desde el último
+                    if (timeSinceLastError >= CORS_ERROR_DEBOUNCE_MS) {
+                        lastCorsErrorTime.current = now;
+                        const corsMessage = getErrorMessage(error);
+                        showToastHelper(
+                            corsMessage,
+                            'error',
+                            15000
+                        );
+                    } else {
+                        // Silenciar el error si ya se mostró recientemente
+                        console.warn('CORS error detected but message suppressed (debounced)');
+                    }
+                    return;
+                }
+                
+                const errorMessage = error.message || '';
+                const errorCode = error.code || '';
+                
+                // Detectar errores de límite de egress/quota de Supabase
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded') ||
+                                    errorCode === 'PGRST301' ||
+                                    errorCode === 'PGRST302';
+                
+                if (isQuotaError) {
+                    showToastHelper(
+                        '⚠️ Límite de transferencia de Supabase alcanzado. Algunos cambios pueden no verse. Considera actualizar tu plan.',
+                        'error',
+                        10000
+                    );
+                } else {
+                    // Solo mostrar error si no es silencioso (errores de red, permisos, etc.)
+                    const isNetworkError = errorMessage.includes('network') || 
+                                         errorMessage.includes('timeout') ||
+                                         errorMessage.includes('fetch');
+                    if (isNetworkError) {
+                        showToastHelper(
+                            '⚠️ Problema de conexión. Los cambios pueden no verse en tiempo real.',
+                            'info',
+                            5000
+                        );
+                    }
+                }
             }
         },
         reloadCandidates: async () => {
@@ -897,6 +960,7 @@ const App: React.FC = () => {
                                     
                                     // Si el candidato no tenía carpeta o la carpeta encontrada es diferente, actualizar
                                     if (!candidate.googleDriveFolderId || folder.id !== candidate.googleDriveFolderId) {
+                                        console.log(`🔄 ${!candidate.googleDriveFolderId ? 'Asociando' : 'Actualizando'} carpeta de candidato ${candidate.name}: ${candidate.googleDriveFolderId || '(sin carpeta)'} → ${folder.id}`);
                                         await candidatesApi.update(candidate.id, {
                                             ...candidate,
                                             googleDriveFolderId: folder.id,
@@ -914,17 +978,70 @@ const App: React.FC = () => {
                                         }));
                                     }
                                 } catch (error) {
-                                    if (__DEV__) console.warn('Error verificando carpeta candidato:', candidate.name, error);
+                                    // Ignorar errores individuales para no bloquear el proceso
+                                    console.warn(`Error verificando carpeta para candidato ${candidate.name}:`, error);
                                 }
                             }
                         } catch (error) {
-                            if (__DEV__) console.warn('Error verificando carpetas Google Drive:', error);
+                            console.warn('Error verificando carpetas de Google Drive:', error);
+                            // No mostrar error al usuario, es una verificación en background
                         }
                     })();
                 }
             } catch (error: any) {
-                if (__DEV__) console.error('Error reloading candidates:', error);
-                handleReloadError(error, showToastHelper, lastCorsErrorTime, CORS_ERROR_DEBOUNCE_MS);
+                console.error('Error reloading candidates:', error);
+                
+                // Detectar errores de CORS (con debouncing para evitar mensajes repetitivos)
+                if (isCorsError(error)) {
+                    const now = Date.now();
+                    const timeSinceLastError = now - lastCorsErrorTime.current;
+                    
+                    // Solo mostrar el mensaje si han pasado al menos 5 minutos desde el último
+                    if (timeSinceLastError >= CORS_ERROR_DEBOUNCE_MS) {
+                        lastCorsErrorTime.current = now;
+                        const corsMessage = getErrorMessage(error);
+                        showToastHelper(
+                            corsMessage,
+                            'error',
+                            15000
+                        );
+                    } else {
+                        // Silenciar el error si ya se mostró recientemente
+                        console.warn('CORS error detected but message suppressed (debounced)');
+                    }
+                    return;
+                }
+                
+                const errorMessage = error.message || '';
+                const errorCode = error.code || '';
+                
+                // Detectar errores de límite de egress/quota de Supabase
+                const isQuotaError = errorMessage.includes('quota') || 
+                                    errorMessage.includes('egress') || 
+                                    errorMessage.includes('limit') ||
+                                    errorMessage.includes('exceeded') ||
+                                    errorCode === 'PGRST301' ||
+                                    errorCode === 'PGRST302';
+                
+                if (isQuotaError) {
+                    showToastHelper(
+                        '⚠️ Límite de transferencia de Supabase alcanzado. Algunos cambios pueden no verse. Considera actualizar tu plan.',
+                        'error',
+                        10000
+                    );
+                } else {
+                    // Solo mostrar error si no es silencioso (errores de red, permisos, etc.)
+                    const isNetworkError = errorMessage.includes('network') || 
+                                         errorMessage.includes('timeout') ||
+                                         errorMessage.includes('fetch');
+                    if (isNetworkError) {
+                        showToastHelper(
+                            '⚠️ Problema de conexión. Los cambios pueden no verse en tiempo real.',
+                            'info',
+                            5000
+                        );
+                    }
+                }
             }
         },
         deleteProcess: async (processId) => {
@@ -934,6 +1051,7 @@ const App: React.FC = () => {
                 
                 // Eliminar en la base de datos PRIMERO (esto también eliminará candidatos y relaciones)
                 await processesApi.delete(processId);
+                console.log(`✅ Proceso eliminado de la base de datos: ${processId}`);
                 
                 // Eliminar carpeta de Google Drive si existe (después de eliminar en BD)
                 if (processToDelete?.googleDriveFolderId) {
@@ -945,8 +1063,11 @@ const App: React.FC = () => {
                             const { googleDriveService } = await import('./lib/googleDrive');
                             googleDriveService.initialize(googleDriveConfig);
                             await googleDriveService.deleteFolder(processToDelete.googleDriveFolderId);
+                            console.log(`✅ Carpeta eliminada de Google Drive: ${processToDelete.googleDriveFolderName}`);
                         } catch (error: any) {
-                            if (__DEV__) console.error('Error eliminando carpeta de Google Drive:', error);
+                            console.error('Error eliminando carpeta de Google Drive:', error);
+                            // No lanzar error, la carpeta puede no existir o ya estar eliminada
+                            // La eliminación del proceso ya fue exitosa
                         }
                     }
                 }
@@ -958,8 +1079,11 @@ const App: React.FC = () => {
                     candidates: s.candidates.filter(c => c.processId !== processId),
                 }));
             } catch (error: any) {
-                showApiErrorToast(error, showToastHelper, { entity: 'process', action: 'delete' });
-                throw error;
+                console.error('Error deleting process:', error);
+                // Mostrar error al usuario
+                alert(`Error al eliminar el proceso: ${error.message || 'No se pudo eliminar el proceso. Verifique los permisos y la conexión a la base de datos.'}`);
+                // NO actualizar el estado local si falla la eliminación en BD
+                throw error; // Re-lanzar el error para que el componente pueda manejarlo
             }
         },
         addCandidate: async (candidateData) => {
@@ -991,11 +1115,13 @@ const App: React.FC = () => {
                         );
                         folderId = folder.id;
                         folderName = folder.name;
+                        console.log(`✅ Carpeta del candidato identificada/creada en Google Drive: ${folderName} (${folderId}) dentro de ${process.googleDriveFolderName}`);
                         hideToastHelper(folderToastId);
                         const savingToastId = showToastHelper('Guardando candidato...', 'loading', 0);
                         hideToastHelper(savingToastId);
                     } catch (error: any) {
-                        if (__DEV__) console.error('Error verificando/creando carpeta del candidato:', error);
+                        console.error('Error verificando/creando carpeta del candidato:', error);
+                        // Continuar sin carpeta si falla
                     }
                 }
                 
@@ -1008,9 +1134,11 @@ const App: React.FC = () => {
                 const newCandidate = await candidatesApi.create(candidateDataWithFolder, state.currentUser?.id);
                 
                 // Recargar el candidato desde la BD para asegurar que tiene todos los datos (attachments, history, etc.)
+                let finalCandidate = newCandidate;
                 try {
                     const reloadedCandidate = await candidatesApi.getById(newCandidate.id);
                     if (reloadedCandidate) {
+                        finalCandidate = reloadedCandidate;
                         // Actualizar estado con el candidato completo recargado desde la BD
                         setState(s => {
                             // Verificar si ya existe (por si acaso)
@@ -1027,18 +1155,35 @@ const App: React.FC = () => {
                         });
                     } else {
                         // Si no se puede recargar, usar el que se creó
-                setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
+                        setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
                     }
                 } catch (reloadError) {
-                    if (__DEV__) console.warn('Error recargando candidato después de crear:', reloadError);
-                setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
+                    console.warn('Error recargando candidato después de crear, usando el retornado:', reloadError);
+                    // Si falla la recarga, usar el candidato retornado
+                    setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
                 }
                 
                 hideToastHelper(loadingToastId);
                 showToastHelper('Candidato creado exitosamente', 'success');
+                
+                // Retornar el candidato final para que pueda ser usado por quien llama
+                return finalCandidate;
             } catch (error: any) {
+                console.error('Error adding candidate:', error);
                 hideToastHelper(loadingToastId);
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'create' });
+                
+                // Verificar si es un error de permisos
+                const errorMessage = error.message || 'No se pudo crear el candidato en la base de datos.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para crear candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al crear candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO crear candidato local si falla en BD - esto causa que aparezca pero no se guarde
+                // Re-lanzar el error para que el componente pueda manejarlo si es necesario
                 throw error;
             }
         },
@@ -1054,6 +1199,15 @@ const App: React.FC = () => {
                     updatedCandidateData = {
                         ...candidateData,
                         criticalStageReviewedAt: undefined
+                    };
+                }
+                
+                // IMPORTANTE: Si no se pasan attachments explícitamente, preservar los existentes
+                // Esto evita que se eliminen attachments al cambiar de etapa u otros campos
+                if (updatedCandidateData.attachments === undefined && currentCandidate) {
+                    updatedCandidateData = {
+                        ...updatedCandidateData,
+                        attachments: currentCandidate.attachments || []
                     };
                 }
                 
@@ -1074,8 +1228,21 @@ const App: React.FC = () => {
                 hideToastHelper(loadingToastId);
                 showToastHelper('Candidato actualizado exitosamente', 'success');
             } catch (error: any) {
+                console.error('Error updating candidate:', error);
                 hideToastHelper(loadingToastId);
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'update' });
+                
+                // Verificar si es un error de permisos
+                const errorMessage = error.message || 'No se pudo actualizar el candidato en la base de datos.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para actualizar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al actualizar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO actualizar estado local si falla en BD - esto causa que parezca guardado pero no se guarde
+                // Re-lanzar el error para que el componente pueda manejarlo
                 throw error;
             }
         },
@@ -1084,7 +1251,18 @@ const App: React.FC = () => {
                 await candidatesApi.delete(candidateId);
                 setState(s => ({ ...s, candidates: s.candidates.filter(c => c.id !== candidateId) }));
             } catch (error: any) {
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'delete' });
+                console.error('Error deleting candidate:', error);
+                // Verificar si es un error de permisos
+                const errorMessage = error.message || 'No se pudo eliminar el candidato de la base de datos.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para eliminar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al eliminar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO eliminar del estado local si falla en BD - esto causa que parezca eliminado pero no se eliminó
                 throw error;
             }
         },
@@ -1096,7 +1274,7 @@ const App: React.FC = () => {
                 throw new Error('Candidato o proceso no encontrado, o el proceso no tiene etapas');
             }
 
-                const firstStageId = targetProcess.stages[0].id;
+            const firstStageId = targetProcess.stages[0].id;
             const movedBy = state.currentUser?.name || 'System';
 
             try {
@@ -1108,8 +1286,23 @@ const App: React.FC = () => {
                 };
 
                 await actions.updateCandidate(updatedCandidate, movedBy);
+                
+                // Actualizar el estado local inmediatamente para reflejar el cambio
+                setState(s => {
+                    const existingIndex = s.candidates.findIndex(c => c.id === candidateId);
+                    if (existingIndex >= 0) {
+                        const updatedCandidates = [...s.candidates];
+                        updatedCandidates[existingIndex] = {
+                            ...updatedCandidates[existingIndex],
+                            processId: targetProcessId,
+                            stageId: firstStageId,
+                        };
+                        return { ...s, candidates: updatedCandidates };
+                    }
+                    return s;
+                });
             } catch (error: any) {
-                if (__DEV__) console.error('Error moving candidate to process:', error);
+                console.error('Error moving candidate to process:', error);
                 const errorMessage = error.message || 'No se pudo mover el candidato al proceso.';
                 showToastHelper(`Error al mover candidato: ${errorMessage}`, 'error', 7000);
                 throw error;
@@ -1123,19 +1316,22 @@ const App: React.FC = () => {
                 throw new Error('Candidato o proceso no encontrado, o el proceso no tiene etapas');
             }
 
-                const firstStageId = targetProcess.stages[0].id;
+            const firstStageId = targetProcess.stages[0].id;
 
             try {
                 // Crear nuevo candidato en la base de datos usando addCandidate
                 const { id, history, ...candidateData } = originalCandidate;
-                await actions.addCandidate({
+                const newCandidate = await actions.addCandidate({
                     ...candidateData,
                     processId: targetProcessId,
                     stageId: firstStageId,
                     archived: false,
                 });
+                
+                // El candidato ya se agregó al estado en addCandidate, no necesitamos hacer nada más aquí
+                console.log('✅ Candidato duplicado exitosamente:', newCandidate.id);
             } catch (error: any) {
-                if (__DEV__) console.error('Error duplicating candidate to process:', error);
+                console.error('Error duplicating candidate to process:', error);
                 const errorMessage = error.message || 'No se pudo duplicar el candidato al proceso.';
                 showToastHelper(`Error al duplicar candidato: ${errorMessage}`, 'error', 7000);
                 throw error;
@@ -1146,7 +1342,7 @@ const App: React.FC = () => {
                 const newUser = await usersApi.create(userData);
                 setState(s => ({ ...s, users: [...s.users, newUser] }));
             } catch (error) {
-                if (__DEV__) console.error('Error adding user:', error);
+                console.error('Error adding user:', error);
                 const newUser: User = { ...userData, id: `user-${Date.now()}` };
                 setState(s => ({ ...s, users: [...s.users, newUser] }));
             }
@@ -1156,16 +1352,19 @@ const App: React.FC = () => {
                 const updated = await usersApi.update(userData.id, userData);
                 setState(s => ({ ...s, users: s.users.map(u => u.id === userData.id ? updated : u) }));
             } catch (error) {
-                if (__DEV__) console.error('Error updating user:', error);
+                console.error('Error updating user:', error);
                 setState(s => ({ ...s, users: s.users.map(u => u.id === userData.id ? userData : u) }));
             }
         },
         deleteUser: async (userId) => {
             try {
+                console.log('Deleting user:', userId);
                 await usersApi.delete(userId);
+                console.log('User deleted successfully from Supabase');
+                // Actualizar estado local
                 setState(s => ({ ...s, users: s.users.filter(u => u.id !== userId) }));
             } catch (error) {
-                if (__DEV__) console.error('Error deleting user from Supabase:', error);
+                console.error('Error deleting user from Supabase:', error);
                 // Aún así, actualizar el estado local para que la UI se actualice
                 // El usuario verá que desapareció, aunque no se haya eliminado en la BD
                 setState(s => ({ ...s, users: s.users.filter(u => u.id !== userId) }));
@@ -1174,22 +1373,53 @@ const App: React.FC = () => {
             }
         },
         addFormIntegration: async (integrationData) => {
-            const newIntegration: FormIntegration = {
-                ...integrationData,
-                id: `fi-${Date.now()}`,
-                webhookUrl: `https://example.com/webhook/${Date.now()}`
-            };
-            setState(s => ({ ...s, formIntegrations: [...s.formIntegrations, newIntegration] }));
+            try {
+                const newIntegration = await formIntegrationsApi.create(integrationData);
+                setState(s => ({ ...s, formIntegrations: [...s.formIntegrations, newIntegration] }));
+                showToastHelper('Integración creada exitosamente', 'success', 3000);
+                return newIntegration;
+            } catch (error: any) {
+                console.error('Error creating form integration:', error);
+                const errorMessage = error.message || 'No se pudo crear la integración.';
+                showToastHelper(`Error al crear integración: ${errorMessage}`, 'error', 7000);
+                throw error;
+            }
+        },
+        updateFormIntegration: async (integrationId, integrationData) => {
+            try {
+                const updated = await formIntegrationsApi.update(integrationId, integrationData);
+                setState(s => ({ 
+                    ...s, 
+                    formIntegrations: s.formIntegrations.map(fi => 
+                        fi.id === integrationId ? updated : fi
+                    ) 
+                }));
+                showToastHelper('Integración actualizada exitosamente', 'success', 3000);
+            } catch (error: any) {
+                console.error('Error updating form integration:', error);
+                const errorMessage = error.message || 'No se pudo actualizar la integración.';
+                showToastHelper(`Error al actualizar integración: ${errorMessage}`, 'error', 7000);
+                throw error;
+            }
         },
         deleteFormIntegration: async (integrationId) => {
-            setState(s => ({ ...s, formIntegrations: s.formIntegrations.filter(fi => fi.id !== integrationId) }));
+            try {
+                await formIntegrationsApi.delete(integrationId);
+                setState(s => ({ ...s, formIntegrations: s.formIntegrations.filter(fi => fi.id !== integrationId) }));
+                showToastHelper('Integración eliminada exitosamente', 'success', 3000);
+            } catch (error: any) {
+                console.error('Error deleting form integration:', error);
+                const errorMessage = error.message || 'No se pudo eliminar la integración.';
+                showToastHelper(`Error al eliminar integración: ${errorMessage}`, 'error', 7000);
+                throw error;
+            }
         },
         addInterviewEvent: async (eventData) => {
             try {
                 const newEvent = await interviewsApi.create(eventData, state.currentUser?.id);
                 setState(s => ({ ...s, interviewEvents: [...s.interviewEvents, newEvent] }));
             } catch (error) {
-                if (__DEV__) console.error('Error adding interview event:', error);
+                console.error('Error adding interview event:', error);
                 const newEvent: InterviewEvent = { ...eventData, id: `evt-${Date.now()}` };
                 setState(s => ({ ...s, interviewEvents: [...s.interviewEvents, newEvent] }));
             }
@@ -1199,7 +1429,7 @@ const App: React.FC = () => {
                 const updated = await interviewsApi.update(eventData.id, eventData);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.map(e => e.id === eventData.id ? updated : e) }));
             } catch (error) {
-                if (__DEV__) console.error('Error updating interview event:', error);
+                console.error('Error updating interview event:', error);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.map(e => e.id === eventData.id ? eventData : e) }));
             }
         },
@@ -1208,7 +1438,7 @@ const App: React.FC = () => {
                 await interviewsApi.delete(eventId);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.filter(e => e.id !== eventId) }));
             } catch (error) {
-                if (__DEV__) console.error('Error deleting interview event:', error);
+                console.error('Error deleting interview event:', error);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.filter(e => e.id !== eventId) }));
             }
         },
@@ -1223,7 +1453,7 @@ const App: React.FC = () => {
                     return { ...s, candidates: s.candidates.map(c => c.id === candidateId ? updatedCandidate : c) };
                 });
             } catch (error) {
-                if (__DEV__) console.error('Error adding post-it:', error);
+                console.error('Error adding post-it:', error);
                 setState(s => {
                     const candidate = s.candidates.find(c => c.id === candidateId);
                     if (!candidate) return s;
@@ -1245,7 +1475,7 @@ const App: React.FC = () => {
                     return { ...s, candidates: s.candidates.map(c => c.id === candidateId ? updatedCandidate : c) };
                 });
             } catch (error) {
-                if (__DEV__) console.error('Error deleting post-it:', error);
+                console.error('Error deleting post-it:', error);
                 setState(s => {
                     const candidate = s.candidates.find(c => c.id === candidateId);
                     if (!candidate) return s;
@@ -1266,7 +1496,7 @@ const App: React.FC = () => {
                     return { ...s, candidates: s.candidates.map(c => c.id === candidateId ? updatedCandidate : c) };
                 });
             } catch (error) {
-                if (__DEV__) console.error('Error adding comment:', error);
+                console.error('Error adding comment:', error);
                 setState(s => {
                     const candidate = s.candidates.find(c => c.id === candidateId);
                     if (!candidate) return s;
@@ -1288,7 +1518,7 @@ const App: React.FC = () => {
                     return { ...s, candidates: s.candidates.map(c => c.id === candidateId ? updatedCandidate : c) };
                 });
             } catch (error) {
-                if (__DEV__) console.error('Error deleting comment:', error);
+                console.error('Error deleting comment:', error);
                 setState(s => {
                     const candidate = s.candidates.find(c => c.id === candidateId);
                     if (!candidate) return s;
@@ -1303,7 +1533,17 @@ const App: React.FC = () => {
                 const updated = await candidatesApi.archive(candidateId);
                 setState(s => ({ ...s, candidates: s.candidates.map(c => c.id === candidateId ? updated : c) }));
             } catch (error: any) {
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'archive' });
+                console.error('Error archiving candidate:', error);
+                const errorMessage = error.message || 'No se pudo archivar el candidato.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para archivar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al archivar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO actualizar estado local si falla en BD
                 throw error;
             }
         },
@@ -1312,7 +1552,17 @@ const App: React.FC = () => {
                 const updated = await candidatesApi.restore(candidateId);
                 setState(s => ({ ...s, candidates: s.candidates.map(c => c.id === candidateId ? updated : c) }));
             } catch (error: any) {
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'restore' });
+                console.error('Error restoring candidate:', error);
+                const errorMessage = error.message || 'No se pudo restaurar el candidato.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para restaurar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al restaurar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
+                // NO actualizar estado local si falla en BD
                 throw error;
             }
         },
@@ -1351,8 +1601,17 @@ const App: React.FC = () => {
                 hideToastHelper(loadingToastId);
                 showToastHelper('Candidato descartado y archivado exitosamente', 'success', 3000);
             } catch (error: any) {
+                console.error('Error discarding candidate:', error);
                 hideToastHelper(loadingToastId);
-                showApiErrorToast(error, showToastHelper, { entity: 'candidate', action: 'discard' });
+                const errorMessage = error.message || 'No se pudo descartar el candidato.';
+                const isPermissionError = error.code === '42501' || error.code === 'PGRST301' || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('permiso');
+                
+                if (isPermissionError) {
+                    showToastHelper('Error de permisos: No tienes permisos para descartar candidatos. Verifica tu rol de usuario.', 'error', 7000);
+                } else {
+                    showToastHelper(`Error al descartar candidato: ${errorMessage}`, 'error', 7000);
+                }
+                
                 throw error;
             }
         },
@@ -1383,7 +1642,7 @@ const App: React.FC = () => {
                     };
                 });
             } catch (error: any) {
-                if (__DEV__) console.error('Error loading archived candidates:', error);
+                console.error('Error loading archived candidates:', error);
                 const errorMessage = error.message || '';
                 const isQuotaError = errorMessage.includes('quota') || 
                                     errorMessage.includes('egress') || 
@@ -1443,7 +1702,8 @@ const App: React.FC = () => {
                 'compare': 'compare',
                 'users': 'users',
                 'settings': 'settings',
-                'bulk-import': 'bulk-import'
+                'bulk-import': 'bulk-import',
+                'bulk-processes': 'bulk-processes'
             };
             
             const requiredSection = viewSectionMap[state.view.type];
@@ -1473,6 +1733,7 @@ const App: React.FC = () => {
             case 'users': return <Users />;
             case 'settings': return <Settings />;
             case 'bulk-import': return <BulkImportView />;
+            case 'bulk-processes': return <BulkProcessesView />;
             case 'archived': return <ArchivedCandidates />;
             default: return <Dashboard />;
         }

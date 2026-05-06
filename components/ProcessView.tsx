@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { useAppState } from '../App';
 import { CandidateCard } from './CandidateCard';
-import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList, Tag, Users, ArrowLeft } from 'lucide-react';
+import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList, Tag, Users, ArrowLeft, CheckCircle, Mail, MessageCircle, Download } from 'lucide-react';
 import { AddCandidateModal } from './AddCandidateModal';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { BulkLetterModal } from './BulkLetterModal';
+import { CloseProcessModal } from './CloseProcessModal';
+import { ProcessCommunicationModal } from './ProcessCommunicationModal';
 import { Attachment, UserRole, ProcessStatus, Candidate } from '../types';
+import * as XLSX from 'xlsx';
 
 interface ProcessViewProps {
     processId: string;
@@ -94,6 +97,8 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     const [isProcessEditorOpen, setIsProcessEditorOpen] = useState(false);
     const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
     const [isBulkLetterOpen, setIsBulkLetterOpen] = useState(false);
+    const [isCloseProcessOpen, setIsCloseProcessOpen] = useState(false);
+    const [isCommunicationOpen, setIsCommunicationOpen] = useState(false);
     const [selectedCandidates, setSelectedCandidates] = useState<string[]>([]);
     const [attachmentsCount, setAttachmentsCount] = useState<number | null>(null);
     const [processAttachments, setProcessAttachments] = useState<Attachment[]>([]);
@@ -445,6 +450,42 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
         </div>
     );
 
+    const handleExportStage = (stageId: string) => {
+        const stage = process.stages.find(s => s.id === stageId);
+        if (!stage) return;
+
+        const stageCandidates = candidates.filter(c => c.stageId === stageId);
+        if (stageCandidates.length === 0) {
+            actions.showToast('No hay candidatos en esta etapa para exportar', 'info', 3000);
+            return;
+        }
+
+        const data = stageCandidates.map(c => ({
+            'Proceso': process.title,
+            'Etapa': stage.name,
+            'Nombre': c.name,
+            'Email': c.email,
+            'Teléfono': c.phone || '',
+            'Teléfono 2': c.phone2 || '',
+            'Fuente': c.source || '',
+            'Expectativa salarial': c.salaryExpectation || '',
+            'Salario acordado': c.agreedSalary || '',
+            'Fecha contratación': c.hireDate || '',
+            'Descartado': c.discarded ? 'Sí' : 'No',
+            'Motivo descarte': c.discardReason || '',
+        }));
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, 'Candidatos');
+
+        const processName = process.title.replace(/[^a-z0-9]/gi, '_').substring(0, 25) || 'Proceso';
+        const stageName = stage.name.replace(/[^a-z0-9]/gi, '_').substring(0, 20) || 'Etapa';
+        const fileName = `${processName}_${stageName}_candidatos.xlsx`;
+
+        XLSX.writeFile(wb, fileName);
+    };
+
     const currentStatus = process.status || 'en_proceso';
     const totalVacancies = process.vacancies ?? 0;
 
@@ -468,10 +509,34 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                      {canManageProcess && (
                         <div className="flex flex-wrap items-center gap-2 md:gap-3">
                             {selectedCandidates.length > 0 && (
-                                <button onClick={() => setIsBulkLetterOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
-                                    <FileText className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden sm:inline">Emitir cartas</span> <span className="sm:hidden">Cartas</span> ({selectedCandidates.length})
-                                </button>
+                                <>
+                                    <button onClick={() => setIsBulkLetterOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+                                        <FileText className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden sm:inline">Emitir cartas</span> <span className="sm:hidden">Cartas</span> ({selectedCandidates.length})
+                                    </button>
+                                    <button onClick={() => setIsCommunicationOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm hover:bg-primary-700 text-xs md:text-sm font-medium whitespace-nowrap">
+                                        <Mail className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden sm:inline">Comunicar</span> <span className="sm:hidden">Comunicar</span> ({selectedCandidates.length})
+                                    </button>
+                                </>
                             )}
+                            <button onClick={() => setIsCommunicationOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+                                <MessageCircle className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden md:inline">Comunicación masiva</span> <span className="md:hidden">Comunicar</span>
+                            </button>
+                            <button 
+                                onClick={() => setIsCloseProcessOpen(true)} 
+                                className={`flex items-center px-3 md:px-4 py-2 rounded-md shadow-sm text-xs md:text-sm font-medium whitespace-nowrap ${
+                                    process.status === 'terminado'
+                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                        : 'bg-green-600 text-white hover:bg-green-700'
+                                }`}
+                            >
+                                <CheckCircle className="w-4 h-4 mr-1 md:mr-2"/> 
+                                <span className="hidden md:inline">
+                                    {process.status === 'terminado' ? 'Gestionar candidatos contratados' : 'Cerrar proceso'}
+                                </span> 
+                                <span className="md:hidden">
+                                    {process.status === 'terminado' ? 'Gestionar' : 'Cerrar'}
+                                </span>
+                            </button>
                             <button 
                                 onClick={async () => {
                                     setIsAttachmentsModalOpen(true);
@@ -528,9 +593,21 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                         onDragLeave={handleDragLeave}
                         className="flex-shrink-0 w-[280px] md:w-80 bg-gray-100 rounded-lg p-2 md:p-3 transition-colors"
                     >
-                        <h3 className="font-semibold text-sm md:text-base text-gray-700 mb-2 md:mb-3 px-1 flex justify-between">
+                        <h3 className="font-semibold text-sm md:text-base text-gray-700 mb-2 md:mb-3 px-1 flex items-center justify-between gap-1">
                             <span className="truncate mr-2">{stage.name}</span>
-                            <span className="flex-shrink-0">({candidates.filter(c => c.stageId === stage.id).length})</span>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => handleExportStage(stage.id)}
+                                    className="p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700"
+                                    title="Exportar candidatos de esta etapa a Excel"
+                                >
+                                    <Download className="w-3 h-3" />
+                                </button>
+                                <span className="text-xs text-gray-600">
+                                    ({candidates.filter(c => c.stageId === stage.id).length})
+                                </span>
+                            </div>
                         </h3>
                         <div className="space-y-3 min-h-[50px]">
                             {candidates
@@ -573,6 +650,63 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                 />
             )}
             {isBulkLetterOpen && <BulkLetterModal candidateIds={selectedCandidates} onClose={() => setIsBulkLetterOpen(false)} />}
+            {isCloseProcessOpen && (
+                <CloseProcessModal
+                    isOpen={isCloseProcessOpen}
+                    onClose={() => setIsCloseProcessOpen(false)}
+                    process={process}
+                    candidates={candidates}
+                    onCloseProcess={async (hiredCandidateIds) => {
+                        const { processesApi } = await import('../lib/api/processes');
+                        await processesApi.closeProcess(processId, hiredCandidateIds);
+                        await actions.reloadProcesses();
+                        actions.showToast('Proceso cerrado exitosamente', 'success', 3000);
+                    }}
+                />
+            )}
+            {isCommunicationOpen && (
+                <ProcessCommunicationModal
+                    isOpen={isCommunicationOpen}
+                    onClose={() => setIsCommunicationOpen(false)}
+                    candidates={selectedCandidates.length > 0 
+                        ? candidates.filter(c => selectedCandidates.includes(c.id))
+                        : candidates
+                    }
+                    onSendEmail={(candidateIds, subject, body) => {
+                        const selectedCandidatesForEmail = candidates.filter(c => candidateIds.includes(c.id) && c.email);
+                        if (selectedCandidatesForEmail.length === 0) {
+                            actions.showToast('No hay candidatos seleccionados con email', 'error', 3000);
+                            return;
+                        }
+                        const emailAddresses = selectedCandidatesForEmail.map(c => c.email).filter(Boolean);
+                        const toEmails = emailAddresses.join(';');
+                        const personalizedBody = body
+                            .replace(/\{\{nombre\}\}/g, selectedCandidatesForEmail[0].name || 'Candidato')
+                            .replace(/\{\{email\}\}/g, selectedCandidatesForEmail[0].email || '')
+                            .replace(/\{\{telefono\}\}/g, selectedCandidatesForEmail[0].phone || '');
+                        const mailtoLink = `mailto:${toEmails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(personalizedBody)}`;
+                        window.location.href = mailtoLink;
+                        actions.showToast(`Abriendo cliente de correo para ${emailAddresses.length} candidato(s)`, 'success', 3000);
+                    }}
+                    onSendWhatsApp={(candidateIds, message) => {
+                        const selectedCandidatesForWhatsApp = candidates.filter(c => candidateIds.includes(c.id) && c.phone);
+                        if (selectedCandidatesForWhatsApp.length === 0) {
+                            actions.showToast('No hay candidatos seleccionados con teléfono', 'error', 3000);
+                            return;
+                        }
+                        // Abrir WhatsApp Web con el primer candidato
+                        const firstCandidate = selectedCandidatesForWhatsApp[0];
+                        const personalizedMessage = message
+                            .replace(/\{\{nombre\}\}/g, firstCandidate.name || 'Candidato')
+                            .replace(/\{\{email\}\}/g, firstCandidate.email || '')
+                            .replace(/\{\{telefono\}\}/g, firstCandidate.phone || '');
+                        const phoneNumber = firstCandidate.phone?.replace(/[^0-9]/g, '');
+                        const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(personalizedMessage)}`;
+                        window.open(whatsappUrl, '_blank');
+                        actions.showToast(`Abriendo WhatsApp para ${selectedCandidatesForWhatsApp.length} candidato(s)`, 'success', 3000);
+                    }}
+                />
+            )}
         </div>
     );
 };

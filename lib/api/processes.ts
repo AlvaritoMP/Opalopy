@@ -43,6 +43,18 @@ function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any
         googleDriveFolderName: dbProcess.google_drive_folder_name,
         publishedDate: dbProcess.published_date,
         needIdentifiedDate: dbProcess.need_identified_date,
+        clientId: dbProcess.client_id || undefined,
+        client: dbProcess.client ? {
+            id: dbProcess.client.id,
+            razonSocial: dbProcess.client.razon_social,
+            ruc: dbProcess.client.ruc,
+            createdAt: dbProcess.client.created_at,
+            updatedAt: dbProcess.client.updated_at,
+        } : undefined,
+        isBulkProcess: dbProcess.is_bulk_process === true || dbProcess.is_bulk_process === 1,
+        bulkConfig: dbProcess.bulk_config ? (typeof dbProcess.bulk_config === 'string' ? JSON.parse(dbProcess.bulk_config) : dbProcess.bulk_config) : undefined,
+        hiredCandidateIds: dbProcess.hired_candidate_ids || undefined,
+        closedAt: dbProcess.closed_at || undefined,
     };
 }
 
@@ -65,6 +77,11 @@ function processToDb(process: Partial<Process>): any {
     if (process.googleDriveFolderName !== undefined) dbProcess.google_drive_folder_name = process.googleDriveFolderName;
     if (process.publishedDate !== undefined) dbProcess.published_date = process.publishedDate && process.publishedDate.trim() !== '' ? process.publishedDate : null;
     if (process.needIdentifiedDate !== undefined) dbProcess.need_identified_date = process.needIdentifiedDate && process.needIdentifiedDate.trim() !== '' ? process.needIdentifiedDate : null;
+    if (process.clientId !== undefined) dbProcess.client_id = process.clientId || null;
+    if (process.isBulkProcess !== undefined) dbProcess.is_bulk_process = process.isBulkProcess;
+    if (process.bulkConfig !== undefined) dbProcess.bulk_config = process.bulkConfig;
+    if (process.hiredCandidateIds !== undefined) dbProcess.hired_candidate_ids = process.hiredCandidateIds;
+    if (process.closedAt !== undefined) dbProcess.closed_at = process.closedAt;
     return dbProcess;
 }
 
@@ -77,7 +94,6 @@ export const processesApi = {
             .from('attachments')
             .select('*', { count: 'exact', head: true })
             .eq('process_id', processId)
-            .eq('app_name', APP_NAME)
             .is('candidate_id', null); // Solo attachments del proceso, no de candidatos
         
         if (error) throw error;
@@ -107,8 +123,8 @@ export const processesApi = {
                     .from('attachments')
                     .select('url')
                     .eq('process_id', processId)
-                    .eq('app_name', APP_NAME)
-                    .is('candidate_id', null);
+                    .is('candidate_id', null)
+                    .eq('app_name', APP_NAME);
                 
                 const dbDriveFileIds = new Set(
                     (dbAttachments || [])
@@ -140,8 +156,8 @@ export const processesApi = {
             .from('attachments')
             .select('id, process_id, name, url, type, size, category, uploaded_at')
             .eq('process_id', processId)
-            .eq('app_name', APP_NAME)
             .is('candidate_id', null) // Solo attachments del proceso, no de candidatos
+            .eq('app_name', APP_NAME) // Filtrar solo attachments de esta app
             .order('uploaded_at', { ascending: false });
         
         if (error) throw error;
@@ -163,12 +179,39 @@ export const processesApi = {
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
     async getAll(includeAttachments: boolean = false): Promise<Process[]> {
         // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
-        const { data: processes, error } = await supabase
-            .from('processes')
-            .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, created_at')
-            .eq('app_name', APP_NAME)
-            .order('created_at', { ascending: false })
-            .limit(200); // Reducir límite para reducir egress
+        // Nota: client_id puede no existir si la migración no se ha ejecutado, por lo que lo manejamos con try-catch
+        let processes: any[] = [];
+        let error: any = null;
+        
+        try {
+            const result = await supabase
+                .from('processes')
+                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at')
+                .eq('app_name', APP_NAME) // Filtrar solo procesos de esta app
+                .eq('is_bulk_process', false) // Excluir procesos masivos (se gestionan en otra sección)
+                .order('created_at', { ascending: false })
+                .limit(200); // Reducir límite para reducir egress
+            
+            processes = result.data || [];
+            error = result.error;
+        } catch (err: any) {
+            // Si falla porque client_id no existe, intentar sin ese campo
+            if (err.message?.includes('client_id') || err.message?.includes('column') || err.code === 'PGRST116') {
+                console.warn('⚠️ Columna client_id no existe, cargando procesos sin ese campo');
+                const result = await supabase
+                    .from('processes')
+                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
+                    .eq('app_name', APP_NAME)
+                    .eq('is_bulk_process', false) // Excluir procesos masivos
+                    .order('created_at', { ascending: false })
+                    .limit(200);
+                
+                processes = result.data || [];
+                error = result.error;
+            } else {
+                error = err;
+            }
+        }
         
         if (error) throw error;
         if (!processes || processes.length === 0) return [];
@@ -182,13 +225,13 @@ export const processesApi = {
                 .from('stages')
                 .select('id, process_id, name, order_index, required_documents, is_critical')
                 .in('process_id', processIds)
-                .eq('app_name', APP_NAME)
+                .eq('app_name', APP_NAME) // Filtrar solo stages de esta app
                 .order('order_index'),
             supabase
                 .from('document_categories')
                 .select('id, process_id, name, description, required')
                 .in('process_id', processIds)
-                .eq('app_name', APP_NAME),
+                .eq('app_name', APP_NAME), // Filtrar solo categorías de esta app
         ];
 
         // Solo cargar attachments si se solicitan explícitamente (lazy loading)
@@ -198,14 +241,45 @@ export const processesApi = {
                     .from('attachments')
                     .select('id, process_id, name, url, type, size, category, uploaded_at')
                     .in('process_id', processIds)
-                    .eq('app_name', APP_NAME)
                     .is('candidate_id', null)
+                    .eq('app_name', APP_NAME) // Filtrar solo attachments de esta app
             );
         } else {
             queries.push(Promise.resolve({ data: [] }));
         }
 
-        const [stagesResult, categoriesResult, attachmentsResult] = await Promise.all(queries);
+        // Ejecutar queries con manejo de errores individual para que si una falla, las otras continúen
+        let stagesResult: any = { data: [] };
+        let categoriesResult: any = { data: [] };
+        let attachmentsResult: any = { data: [] };
+        
+        try {
+            const results = await Promise.allSettled(queries);
+            
+            // stages
+            if (results[0].status === 'fulfilled') {
+                stagesResult = results[0].value;
+            } else {
+                console.warn('⚠️ Error cargando stages, continuando sin stages:', results[0].reason);
+            }
+            
+            // document_categories
+            if (results[1].status === 'fulfilled') {
+                categoriesResult = results[1].value;
+            } else {
+                console.warn('⚠️ Error cargando document_categories, continuando sin categorías:', results[1].reason);
+            }
+            
+            // attachments
+            if (results[2].status === 'fulfilled') {
+                attachmentsResult = results[2].value;
+            } else {
+                console.warn('⚠️ Error cargando attachments, continuando sin attachments:', results[2].reason);
+            }
+        } catch (error) {
+            console.error('Error ejecutando queries de relaciones:', error);
+            // Continuar con arrays vacíos
+        }
 
         // 4. Agrupar relaciones por process_id en memoria
         const stagesByProcessId = new Map<string, any[]>();
@@ -255,7 +329,7 @@ export const processesApi = {
             .from('processes')
             .select('*')
             .eq('id', id)
-            .eq('app_name', APP_NAME)
+            .eq('app_name', APP_NAME) // Filtrar solo procesos de esta app
             .single();
         
         if (error) {
@@ -268,23 +342,54 @@ export const processesApi = {
         const [stages, categories, attachments] = await Promise.all([
             supabase.from('stages').select('*').eq('process_id', id).eq('app_name', APP_NAME).order('order_index'),
             supabase.from('document_categories').select('*').eq('process_id', id).eq('app_name', APP_NAME),
-            supabase.from('attachments').select('*').eq('process_id', id).eq('app_name', APP_NAME).is('candidate_id', null),
+            supabase.from('attachments').select('*').eq('process_id', id).is('candidate_id', null).eq('app_name', APP_NAME),
         ]);
 
         return dbToProcess(process, stages.data || [], categories.data || [], attachments.data || []);
+    },
+
+    // Cerrar proceso seleccionando candidatos contratados
+    async closeProcess(processId: string, hiredCandidateIds: string[]): Promise<Process> {
+        // Obtener el proceso actual para verificar si ya tiene closed_at
+        const currentProcess = await this.getById(processId);
+        
+        const updateData: any = {
+            status: 'terminado',
+            hired_candidate_ids: hiredCandidateIds,
+        };
+        
+        // Solo establecer closed_at si no existe ya
+        if (!currentProcess?.closedAt) {
+            updateData.closed_at = new Date().toISOString();
+        }
+        
+        const { error } = await supabase
+            .from('processes')
+            .update(updateData)
+            .eq('id', processId)
+            .eq('app_name', APP_NAME);
+        
+        if (error) throw error;
+
+        // Recargar el proceso actualizado
+        const updatedProcess = await this.getById(processId);
+        if (!updatedProcess) {
+            throw new Error('No se pudo recargar el proceso después de cerrarlo');
+        }
+        return updatedProcess;
     },
 
     // Crear proceso con sus stages y categorías
     async create(processData: Omit<Process, 'id'>, createdBy?: string): Promise<Process> {
         const dbData = processToDb(processData);
         if (createdBy) dbData.created_by = createdBy;
-        dbData.app_name = APP_NAME;
 
         // Separar flyer_position del resto de los datos para manejarlo por separado
         // ya que la columna puede no existir en la BD
         const { flyer_position, ...restDbData } = dbData;
         
         // Crear proceso sin flyer_position primero
+        restDbData.app_name = APP_NAME; // Asegurar que siempre se asigne el app_name
         const { data: process, error } = await supabase
             .from('processes')
             .insert(restDbData)
@@ -342,7 +447,6 @@ export const processesApi = {
                 name: stage.name,
                 order_index: index,
                 required_documents: stage.requiredDocuments || null,
-                app_name: APP_NAME,
             }));
 
             // Intentar insertar con is_critical primero (si la columna existe funcionará)
@@ -352,7 +456,7 @@ export const processesApi = {
                 order_index: index,
                 required_documents: stage.requiredDocuments || null,
                 is_critical: stage.isCritical || false,
-                app_name: APP_NAME,
+                app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             }));
             
             const { data: insertedStages, error: stagesError } = await supabase
@@ -427,7 +531,7 @@ export const processesApi = {
                 name: cat.name,
                 description: cat.description || null,
                 required: cat.required || false,
-                app_name: APP_NAME,
+                app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             }));
 
             const { error: categoriesError } = await supabase
@@ -450,7 +554,7 @@ export const processesApi = {
                     size: att.size,
                     category: att.category || null,
                     candidate_id: null, // Estos son attachments del proceso, no de candidatos
-                    app_name: APP_NAME,
+                    app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
                 }));
 
             if (attachmentsToInsert.length > 0) {
@@ -473,18 +577,20 @@ export const processesApi = {
     // Actualizar proceso
     async update(id: string, processData: Partial<Process>): Promise<Process> {
         const dbData = processToDb(processData);
-        delete dbData.app_name; // No permitir cambiar app_name
         
         // Separar flyer_position del resto de los datos para manejarlo por separado
         // ya que la columna puede no existir en la BD
         const { flyer_position, ...restDbData } = dbData;
+        
+        // No permitir cambiar app_name
+        delete restDbData.app_name;
         
         // Actualizar primero los campos principales
         const { error } = await supabase
             .from('processes')
             .update(restDbData)
             .eq('id', id)
-            .eq('app_name', APP_NAME);
+            .eq('app_name', APP_NAME); // Asegurar que solo se actualicen procesos de esta app
         
         if (error) throw error;
         
@@ -680,7 +786,7 @@ export const processesApi = {
                     name: s.name,
                     order_index: s.order_index,
                     required_documents: s.required_documents,
-                    app_name: APP_NAME,
+                    app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
                 }));
                 
                 const { data: insertedStages, error: insertError } = await supabase
@@ -732,7 +838,6 @@ export const processesApi = {
                     .from('candidate_history')
                     .select('id')
                     .eq('stage_id', stageId)
-                    .eq('app_name', APP_NAME)
                     .limit(1);
                 
                 if (checkError) {
@@ -771,7 +876,7 @@ export const processesApi = {
                     name: cat.name,
                     description: cat.description || null,
                     required: cat.required || false,
-                    app_name: APP_NAME,
+                    app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
                 }));
 
                 const { error: categoriesError } = await supabase
@@ -791,7 +896,6 @@ export const processesApi = {
                 .from('attachments')
                 .select('id')
                 .eq('process_id', id)
-                .eq('app_name', APP_NAME)
                 .is('candidate_id', null);
             
             if (existingAttachments) {
@@ -805,7 +909,6 @@ export const processesApi = {
                     const { error: deleteError } = await supabase
                         .from('attachments')
                         .delete()
-                        .eq('app_name', APP_NAME)
                         .in('id', attachmentsToDelete);
                     
                     if (deleteError) {
@@ -831,8 +934,7 @@ export const processesApi = {
         const { data: candidates } = await supabase
             .from('candidates')
             .select('id')
-            .eq('process_id', id)
-            .eq('app_name', APP_NAME);
+            .eq('process_id', id);
         
         if (candidates && candidates.length > 0) {
             const candidateIds = candidates.map(c => c.id);
@@ -842,7 +944,6 @@ export const processesApi = {
             const { error: candidateAttachmentsError } = await supabase
                 .from('attachments')
                 .delete()
-                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (candidateAttachmentsError) {
@@ -853,7 +954,6 @@ export const processesApi = {
             const { error: postItsError } = await supabase
                 .from('post_its')
                 .delete()
-                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (postItsError) {
@@ -864,7 +964,6 @@ export const processesApi = {
             const { error: commentsError } = await supabase
                 .from('comments')
                 .delete()
-                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (commentsError) {
@@ -875,7 +974,6 @@ export const processesApi = {
             const { error: historyError } = await supabase
                 .from('candidate_history')
                 .delete()
-                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (historyError) {
@@ -886,7 +984,6 @@ export const processesApi = {
             const { error: interviewsError } = await supabase
                 .from('interview_events')
                 .delete()
-                .eq('app_name', APP_NAME)
                 .in('candidate_id', candidateIds);
             
             if (interviewsError) {
@@ -897,8 +994,7 @@ export const processesApi = {
             const { error: candidatesError } = await supabase
                 .from('candidates')
                 .delete()
-                .eq('process_id', id)
-                .eq('app_name', APP_NAME);
+                .eq('process_id', id);
             
             if (candidatesError) {
                 console.error('Error eliminando candidatos:', candidatesError);
@@ -912,8 +1008,7 @@ export const processesApi = {
         const { error: stagesError } = await supabase
             .from('stages')
             .delete()
-            .eq('process_id', id)
-            .eq('app_name', APP_NAME);
+            .eq('process_id', id);
         
         if (stagesError) {
             console.error('Error eliminando stages:', stagesError);
@@ -924,8 +1019,7 @@ export const processesApi = {
         const { error: categoriesError } = await supabase
             .from('document_categories')
             .delete()
-            .eq('process_id', id)
-            .eq('app_name', APP_NAME);
+            .eq('process_id', id);
         
         if (categoriesError) {
             console.error('Error eliminando categorías:', categoriesError);
@@ -936,8 +1030,7 @@ export const processesApi = {
         const { error: attachmentsError } = await supabase
             .from('attachments')
             .delete()
-            .eq('process_id', id)
-            .eq('app_name', APP_NAME);
+            .eq('process_id', id);
         
         if (attachmentsError) {
             console.warn('Error eliminando attachments del proceso:', attachmentsError);
@@ -948,8 +1041,7 @@ export const processesApi = {
         const { error: formsError } = await supabase
             .from('form_integrations')
             .delete()
-            .eq('process_id', id)
-            .eq('app_name', APP_NAME);
+            .eq('process_id', id);
         
         if (formsError) {
             console.warn('Error eliminando integraciones de formularios:', formsError);
@@ -960,7 +1052,6 @@ export const processesApi = {
             .from('processes')
             .delete()
             .eq('id', id)
-            .eq('app_name', APP_NAME)
             .select();
         
         if (error) {
@@ -973,6 +1064,94 @@ export const processesApi = {
         }
         
         console.log(`✅ Proceso eliminado correctamente: ${id}`);
+    },
+
+    // Obtener todos los procesos masivos (solo procesos masivos)
+    async getAllBulkProcesses(): Promise<Process[]> {
+        let processes: any[] = [];
+        let error: any = null;
+        
+        try {
+            const result = await supabase
+                .from('processes')
+                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
+                .eq('app_name', APP_NAME)
+                .eq('is_bulk_process', true) // Solo procesos masivos
+                .order('created_at', { ascending: false });
+            
+            processes = result.data || [];
+            error = result.error;
+        } catch (err: any) {
+            // Si falla porque is_bulk_process no existe, intentar sin ese campo
+            if (err.message?.includes('is_bulk_process') || err.message?.includes('column') || err.code === 'PGRST116') {
+                console.warn('⚠️ Columna is_bulk_process no existe, cargando todos los procesos');
+                const result = await supabase
+                    .from('processes')
+                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, bulk_config, hired_candidate_ids, closed_at, created_at')
+                    .eq('app_name', APP_NAME)
+                    .order('created_at', { ascending: false });
+                
+                processes = result.data || [];
+                error = result.error;
+            } else {
+                error = err;
+            }
+        }
+        
+        if (error) throw error;
+        if (!processes || processes.length === 0) return [];
+
+        // Obtener todos los IDs de procesos
+        const processIds = processes.map(p => p.id);
+
+        // Cargar todas las relaciones en batch
+        const queries: Promise<any>[] = [
+            supabase
+                .from('stages')
+                .select('id, process_id, name, order_index, required_documents, is_critical')
+                .in('process_id', processIds)
+                .eq('app_name', APP_NAME)
+                .order('process_id, order_index'),
+            supabase
+                .from('document_categories')
+                .select('id, process_id, name, description, required')
+                .in('process_id', processIds)
+                .eq('app_name', APP_NAME),
+        ];
+
+        const [stagesResult, categoriesResult] = await Promise.all(queries);
+
+        if (stagesResult.error) throw stagesResult.error;
+        if (categoriesResult.error) throw categoriesResult.error;
+
+        const stages = stagesResult.data || [];
+        const documentCategories = categoriesResult.data || [];
+
+        // Agrupar stages y categorías por process_id
+        const stagesByProcessId = new Map<string, any[]>();
+        const categoriesByProcessId = new Map<string, any[]>();
+
+        stages.forEach((stage: any) => {
+            if (!stagesByProcessId.has(stage.process_id)) {
+                stagesByProcessId.set(stage.process_id, []);
+            }
+            stagesByProcessId.get(stage.process_id)!.push(stage);
+        });
+
+        documentCategories.forEach((category: any) => {
+            if (!categoriesByProcessId.has(category.process_id)) {
+                categoriesByProcessId.set(category.process_id, []);
+            }
+            categoriesByProcessId.get(category.process_id)!.push(category);
+        });
+
+        // Convertir a objetos Process
+        return processes.map(p => dbToProcess(
+            p,
+            stagesByProcessId.get(p.id) || [],
+            categoriesByProcessId.get(p.id) || [],
+            [] // Attachments se cargan lazy
+        ));
     },
 };
 

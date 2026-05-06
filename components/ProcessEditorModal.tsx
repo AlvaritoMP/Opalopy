@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../App';
-import { Process, Stage, Attachment, ProcessStatus, DocumentCategory } from '../types';
+import { Process, Stage, Attachment, ProcessStatus, DocumentCategory, Client } from '../types';
 import { X, Plus, Trash2, GripVertical, Paperclip, Upload, FileText, CheckSquare, Folder, Cloud, Eye, Info } from 'lucide-react';
 import { googleDriveService, GoogleDriveFolder } from '../lib/googleDrive';
+import { clientsApi } from '../lib/api';
 
 interface ProcessEditorModalProps {
     process: Process | null;
@@ -48,6 +49,9 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
     const [isCreatingFolder, setIsCreatingFolder] = useState(false);
     const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
     const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
+    const [clients, setClients] = useState<Client[]>([]);
+    const [selectedClientId, setSelectedClientId] = useState<string | undefined>(process?.clientId);
+    const [isLoadingClients, setIsLoadingClients] = useState(false);
     const flyerInputRef = useRef<HTMLInputElement>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,6 +70,26 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
             loadFolders();
         }
     }, [isGoogleDriveConnected]);
+
+    useEffect(() => {
+        loadClients();
+    }, []);
+
+    useEffect(() => {
+        setSelectedClientId(process?.clientId);
+    }, [process?.clientId]);
+
+    const loadClients = async () => {
+        setIsLoadingClients(true);
+        try {
+            const allClients = await clientsApi.getAll();
+            setClients(allClients);
+        } catch (error: any) {
+            console.error('Error cargando clientes:', error);
+        } finally {
+            setIsLoadingClients(false);
+        }
+    };
 
     const loadFolders = async () => {
         if (!isGoogleDriveConnected || !googleDriveConfig) return;
@@ -387,6 +411,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
             documentCategories: finalCategories.length > 0 ? finalCategories : undefined,
             googleDriveFolderId: googleDriveFolderId || undefined,
             googleDriveFolderName: googleDriveFolderName || undefined,
+            clientId: selectedClientId || undefined,
         };
 
         try {
@@ -441,6 +466,28 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label className="block text-sm font-medium text-gray-700">Título del proceso</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} required className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Código OS (orden de servicio)</label><input type="text" placeholder="Ej: OS-2024-001" value={serviceOrderCode} onChange={e => setServiceOrderCode(e.target.value)} className="mt-1 block w-full input"/></div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Cliente</label>
+                                {isLoadingClients ? (
+                                    <div className="mt-1 text-sm text-gray-500">Cargando clientes...</div>
+                                ) : (
+                                    <select
+                                        value={selectedClientId || ''}
+                                        onChange={e => setSelectedClientId(e.target.value || undefined)}
+                                        className="mt-1 block w-full input"
+                                    >
+                                        <option value="">Sin cliente</option>
+                                        {clients.map(client => (
+                                            <option key={client.id} value={client.id}>
+                                                {client.razonSocial} (RUC: {client.ruc})
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Selecciona el cliente al que pertenece este proceso. Puedes gestionar clientes en Configuración.
+                                </p>
+                            </div>
                             <div><label className="block text-sm font-medium text-gray-700">Rango salarial</label><input type="text" placeholder={`${state.settings?.currencySymbol || '$'}100k - ${state.settings?.currencySymbol || '$'}120k`} value={salaryRange} onChange={e => setSalaryRange(e.target.value)} className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Nivel de experiencia</label><input type="text" placeholder="Ej: 5+ años" value={experienceLevel} onChange={e => setExperienceLevel(e.target.value)} className="mt-1 block w-full input"/></div>
                             <div><label className="block text-sm font-medium text-gray-700">Seniority</label><input type="text" placeholder="Ej: Senior, Mid-Level" value={seniority} onChange={e => setSeniority(e.target.value)} className="mt-1 block w-full input"/></div>

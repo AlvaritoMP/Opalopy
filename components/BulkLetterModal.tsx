@@ -51,7 +51,7 @@ export const BulkLetterModal: React.FC<{ candidateIds: string[]; onClose: () => 
     const [lastError, setLastError] = useState<string>('');
 
     const savedTemplates = state.settings?.templates || [];
-    const companyName = state.settings?.appName || 'ATS Pro';
+    const companyName = state.settings?.appName || 'Opalopy';
 
     const fromBase64ToArrayBuffer = (b64: string): ArrayBuffer => {
         const binary = atob(b64);

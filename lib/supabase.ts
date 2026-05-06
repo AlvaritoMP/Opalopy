@@ -61,6 +61,11 @@ export function getErrorMessage(error: any): string {
     return 'Error desconocido al conectar con Supabase';
 }
 
+// Función helper para verificar si Supabase está configurado
+export function isSupabaseConfigured(): boolean {
+    return !!(supabaseUrl && supabaseAnonKey);
+}
+
 // Función helper para establecer el usuario actual en la sesión
 export async function setCurrentUser(userId: string) {
     try {

@@ -12,23 +12,48 @@ export const ChangeProcessModal: React.FC<ChangeProcessModalProps> = ({ candidat
     const { state, actions } = useAppState();
     const [actionType, setActionType] = useState<'move' | 'duplicate'>('move');
     const [targetProcessId, setTargetProcessId] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const availableProcesses = state.processes.filter(p => p.id !== candidate.processId);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!targetProcessId) {
-            alert('Selecciona un proceso de destino.');
+            setError('Selecciona un proceso de destino.');
             return;
         }
 
-        if (actionType === 'move') {
-            await actions.moveCandidateToProcess(candidate.id, targetProcessId);
-        } else {
-            await actions.duplicateCandidateToProcess(candidate.id, targetProcessId);
+        setIsProcessing(true);
+        setError(null);
+
+        try {
+            if (actionType === 'move') {
+                await actions.moveCandidateToProcess(candidate.id, targetProcessId);
+                // Recargar candidatos para reflejar el cambio
+                await actions.reloadCandidates();
+                actions.showToast(
+                    `Candidato movido exitosamente a "${state.processes.find(p => p.id === targetProcessId)?.title || 'el proceso seleccionado'}"`,
+                    'success',
+                    3000
+                );
+            } else {
+                await actions.duplicateCandidateToProcess(candidate.id, targetProcessId);
+                // Recargar candidatos para reflejar el cambio
+                await actions.reloadCandidates();
+                actions.showToast(
+                    `Candidato duplicado exitosamente en "${state.processes.find(p => p.id === targetProcessId)?.title || 'el proceso seleccionado'}"`,
+                    'success',
+                    3000
+                );
+            }
+            
+            onClose();
+        } catch (error: any) {
+            console.error('Error en cambio de proceso:', error);
+            setError(error.message || 'Ocurrió un error al procesar la acción. Por favor, intenta nuevamente.');
+            setIsProcessing(false);
         }
-        
-        onClose();
     };
 
     return (
@@ -45,6 +70,12 @@ export const ChangeProcessModal: React.FC<ChangeProcessModalProps> = ({ candidat
                         <p className="text-sm text-gray-600">
                             Estás a punto de modificar la postulación de <span className="font-bold">{candidate.name}</span>.
                         </p>
+                        
+                        {error && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                                <p className="text-sm text-red-800">{error}</p>
+                            </div>
+                        )}
                         
                         {/* Action Type Selection */}
                         <fieldset className="space-y-2">
@@ -85,8 +116,28 @@ export const ChangeProcessModal: React.FC<ChangeProcessModalProps> = ({ candidat
                         </div>
                     </div>
                     <div className="p-6 bg-gray-50 rounded-b-xl flex justify-end space-x-3">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium">Cancelar</button>
-                        <button type="submit" disabled={!targetProcessId} className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm text-sm font-medium disabled:bg-primary-300">Confirmar acción</button>
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            disabled={isProcessing}
+                            className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={!targetProcessId || isProcessing} 
+                            className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm text-sm font-medium disabled:bg-primary-300 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                            {isProcessing ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    Procesando...
+                                </>
+                            ) : (
+                                'Confirmar acción'
+                            )}
+                        </button>
                     </div>
                 </form>
             </div>
