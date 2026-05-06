@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useAppState } from '../App';
-import { Candidate, Attachment, InterviewEvent, UserRole, Process, DocumentCategory } from '../types';
+import { Candidate, Attachment, InterviewEvent, UserRole, Process, DocumentCategory, User as AppUser } from '../types';
 import { X, Mail, Phone, Linkedin, User, FileText, Eye, Download, Upload, Trash2, Briefcase, DollarSign, Calendar, Info, MapPin, Edit, ArrowRightLeft, Copy, MessageCircle, PhoneCall, Archive, Undo2 } from 'lucide-react';
 import { ScheduleInterviewModal } from './ScheduleInterviewModal';
 import { ChangeProcessModal } from './ChangeProcessModal';
@@ -8,6 +8,7 @@ import { CandidateCommentsModal } from './CandidateCommentsModal';
 import { DocumentChecklist } from './DocumentChecklist';
 import { SearchableSelect } from './SearchableSelect';
 import { DiscardCandidateModal } from './DiscardCandidateModal';
+import { usersApi } from '../lib/api/users';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -53,12 +54,37 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [isEditing, setIsEditing] = useState(false);
     const [editableCandidate, setEditableCandidate] = useState<Candidate>(initialCandidate);
     const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
+    const [selectableUsers, setSelectableUsers] = useState<AppUser[]>(
+        state.users.length > 0 ? state.users : (state.currentUser ? [state.currentUser] : [])
+    );
     
     // Usar useRef para rastrear el último candidato procesado y evitar bucles infinitos
     const lastProcessedCandidateRef = React.useRef<string>('');
     
     // Marcar como revisado cuando se abre el modal y el candidato está en etapa crítica
     // SOLO si el usuario es cliente (client), no para admin/recruiter
+    React.useEffect(() => {
+        if (state.users.length > 0) {
+            setSelectableUsers(state.users);
+            return;
+        }
+
+        usersApi.getAll()
+            .then(users => {
+                if (users.length > 0) {
+                    setSelectableUsers(users);
+                } else if (state.currentUser) {
+                    setSelectableUsers([state.currentUser]);
+                }
+            })
+            .catch(error => {
+                console.warn('Error cargando usuarios para selector de creador:', error);
+                if (state.currentUser) {
+                    setSelectableUsers([state.currentUser]);
+                }
+            });
+    }, [state.users, state.currentUser]);
+
     React.useEffect(() => {
         const checkAndMarkAsReviewed = async () => {
             const currentCandidate = state.candidates.find(c => c.id === initialCandidate.id);
@@ -304,7 +330,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const currentCandidate = isEditing ? editableCandidate : (candidateFromState || initialCandidate);
     const isArchived = !!currentCandidate.archived;
     const creatorName = currentCandidate.createdBy
-        ? state.users.find(user => user.id === currentCandidate.createdBy)?.name || currentCandidate.createdBy
+        ? selectableUsers.find(user => user.id === currentCandidate.createdBy)?.name || currentCandidate.createdBy
         : 'Sin asignar';
     const processStages = process?.stages || [];
     const presentationStageIndex = processStages.findIndex(stage => stage.name.toLowerCase().includes('present'));
@@ -975,7 +1001,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                     <label className="block text-sm font-medium text-gray-700">Creado por</label>
                                                     <select name="createdBy" value={editableCandidate.createdBy || ''} onChange={handleInputChange} className="mt-1 block w-full input">
                                                         <option value="">Sin asignar</option>
-                                                        {state.users.map(user => (
+                                                        {selectableUsers.map(user => (
                                                             <option key={user.id} value={user.id}>
                                                                 {user.name} ({user.email})
                                                             </option>

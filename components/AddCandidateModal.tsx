@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../App';
-import { Process, Attachment, Candidate } from '../types';
+import { Process, Attachment, Candidate, User as AppUser } from '../types';
 import { X, Upload, FileText, Trash2, User } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
+import { usersApi } from '../lib/api/users';
 
 interface AddCandidateModalProps {
     process: Process;
@@ -49,6 +50,9 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [linkedinUrl, setLinkedinUrl] = useState('');
     const [address, setAddress] = useState('');
     const [createdBy, setCreatedBy] = useState(state.currentUser?.id || '');
+    const [selectableUsers, setSelectableUsers] = useState<AppUser[]>(
+        state.users.length > 0 ? state.users : (state.currentUser ? [state.currentUser] : [])
+    );
     
     // Recargar settings cuando se abre el modal para asegurar que tenemos la versión más reciente
     useEffect(() => {
@@ -58,6 +62,28 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
             });
         }
     }, []); // Solo al montar el componente
+
+    useEffect(() => {
+        if (state.users.length > 0) {
+            setSelectableUsers(state.users);
+            return;
+        }
+
+        usersApi.getAll()
+            .then(users => {
+                if (users.length > 0) {
+                    setSelectableUsers(users);
+                } else if (state.currentUser) {
+                    setSelectableUsers([state.currentUser]);
+                }
+            })
+            .catch(error => {
+                console.warn('Error cargando usuarios para selector de creador:', error);
+                if (state.currentUser) {
+                    setSelectableUsers([state.currentUser]);
+                }
+            });
+    }, [state.users, state.currentUser]);
     
     // Log candidateSources cuando cambia
     useEffect(() => {
@@ -188,7 +214,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                             <label className="block text-sm font-medium text-gray-700">Creado por</label>
                             <select value={createdBy} onChange={e => setCreatedBy(e.target.value)} className="mt-1 block w-full input">
                                 <option value="">Sin asignar</option>
-                                {state.users.map(user => (
+                                {selectableUsers.map(user => (
                                     <option key={user.id} value={user.id}>
                                         {user.name} ({user.email})
                                     </option>
