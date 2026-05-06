@@ -40,15 +40,20 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Construir la URL del webhook (usar https siempre)
+    // Construir variantes de URL. Supabase puede exponer req.url sin el prefijo /functions/v1,
+    // mientras que la app guarda la URL pública completa que se copia en Tally.
     const webhookUrl = `https://${url.host}${url.pathname}`
-    console.log(`🔍 Buscando integración con webhook_url: ${webhookUrl}`)
+    const publicWebhookUrl = url.pathname.startsWith('/functions/v1')
+      ? webhookUrl
+      : `https://${url.host}/functions/v1${url.pathname}`
+    const attemptedWebhookUrls = Array.from(new Set([webhookUrl, publicWebhookUrl]))
+    console.log(`🔍 Buscando integración con webhook_url: ${attemptedWebhookUrls.join(' o ')}`)
 
     // 1. Buscar la integración por webhook URL
     const { data: integration, error: integrationError } = await supabase
       .from('form_integrations')
       .select('*')
-      .eq('webhook_url', webhookUrl)
+      .in('webhook_url', attemptedWebhookUrls)
       .maybeSingle()
 
     if (integrationError) {
@@ -60,9 +65,9 @@ serve(async (req) => {
     }
 
     if (!integration) {
-      console.error(`❌ Integración no encontrada para webhook: ${webhookUrl}`)
+      console.error(`❌ Integración no encontrada para webhook: ${attemptedWebhookUrls.join(' o ')}`)
       return new Response(
-        JSON.stringify({ error: 'Integration not found', webhookUrl }),
+        JSON.stringify({ error: 'Integration not found', attemptedWebhookUrls }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
