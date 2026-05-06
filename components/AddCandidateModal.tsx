@@ -48,6 +48,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [dni, setDni] = useState('');
     const [linkedinUrl, setLinkedinUrl] = useState('');
     const [address, setAddress] = useState('');
+    const [createdBy, setCreatedBy] = useState(state.currentUser?.id || '');
     
     // Recargar settings cuando se abre el modal para asegurar que tenemos la versión más reciente
     useEffect(() => {
@@ -97,6 +98,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                 dni,
                 linkedinUrl,
                 address,
+                createdBy: createdBy || undefined,
                 province,
                 district,
                 applicationStartedDate: new Date().toISOString(), // Set automatically when candidate is created
@@ -182,6 +184,17 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                         <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" value={dni} onChange={e => setDni(e.target.value)} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Ej: Ciudad de México" className="mt-1 block w-full input"/></div>
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700">Creado por</label>
+                            <select value={createdBy} onChange={e => setCreatedBy(e.target.value)} className="mt-1 block w-full input">
+                                <option value="">Sin asignar</option>
+                                {state.users.map(user => (
+                                    <option key={user.id} value={user.id}>
+                                        {user.name} ({user.email})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                         <div>
                             <SearchableSelect
                                 label="Provincia"

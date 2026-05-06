@@ -119,6 +119,7 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         hireDate: dbCandidate.hire_date,
         googleDriveFolderId: dbCandidate.google_drive_folder_id,
         googleDriveFolderName: dbCandidate.google_drive_folder_name,
+        createdBy: dbCandidate.created_by,
         visibleToClients: dbCandidate.visible_to_clients ?? false,
         offerAcceptedDate: dbCandidate.offer_accepted_date,
         applicationStartedDate: dbCandidate.application_started_date,
@@ -170,6 +171,7 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.hireDate !== undefined) dbCandidate.hire_date = candidate.hireDate;
     if (candidate.googleDriveFolderId !== undefined) dbCandidate.google_drive_folder_id = candidate.googleDriveFolderId;
     if (candidate.googleDriveFolderName !== undefined) dbCandidate.google_drive_folder_name = candidate.googleDriveFolderName;
+    if (candidate.createdBy !== undefined) dbCandidate.created_by = candidate.createdBy || null;
     if (candidate.visibleToClients !== undefined) dbCandidate.visible_to_clients = candidate.visibleToClients;
     if (candidate.offerAcceptedDate !== undefined) dbCandidate.offer_accepted_date = candidate.offerAcceptedDate;
     if (candidate.applicationStartedDate !== undefined) dbCandidate.application_started_date = candidate.applicationStartedDate;
@@ -186,7 +188,7 @@ export const candidatesApi = {
         // Seleccionar solo campos básicos para reducir egress (solo de esta app)
         let query = supabase
             .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, created_by, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('app_name', APP_NAME) // Filtrar solo candidatos de esta app
             .order('created_at', { ascending: false })
             .limit(200); // Reducir límite para reducir egress
@@ -233,6 +235,7 @@ export const candidatesApi = {
                 hireDate: dbCandidate.hire_date,
                 googleDriveFolderId: dbCandidate.google_drive_folder_id,
                 googleDriveFolderName: dbCandidate.google_drive_folder_name,
+                createdBy: dbCandidate.created_by,
                 visibleToClients: dbCandidate.visible_to_clients ?? false,
                 offerAcceptedDate: dbCandidate.offer_accepted_date,
                 applicationStartedDate: dbCandidate.application_started_date,
@@ -384,6 +387,7 @@ export const candidatesApi = {
                 hireDate: dbCandidate.hire_date,
                 googleDriveFolderId: dbCandidate.google_drive_folder_id,
                 googleDriveFolderName: dbCandidate.google_drive_folder_name,
+                createdBy: dbCandidate.created_by,
                 visibleToClients: dbCandidate.visible_to_clients ?? false,
                 offerAcceptedDate: dbCandidate.offer_accepted_date,
                 applicationStartedDate: dbCandidate.application_started_date,
@@ -441,7 +445,7 @@ export const candidatesApi = {
     async getById(id: string): Promise<Candidate | null> {
         const { data, error } = await supabase
             .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, created_by, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('id', id)
             .eq('app_name', APP_NAME) // Filtrar solo candidatos de esta app
             .single();
@@ -457,7 +461,7 @@ export const candidatesApi = {
     // Crear candidato
     async create(candidateData: Omit<Candidate, 'id' | 'history'>, createdBy?: string): Promise<Candidate> {
         const dbData = candidateToDb(candidateData);
-        if (createdBy) dbData.created_by = createdBy;
+        if (!dbData.created_by && createdBy) dbData.created_by = createdBy;
         dbData.app_name = APP_NAME; // Asegurar que siempre se asigne el app_name
         // Set application_started_date if not provided
         if (!dbData.application_started_date) {
@@ -481,7 +485,7 @@ export const candidatesApi = {
             
             if (isColumnError) {
                 // Separar campos opcionales y reintentar
-                const { agreed_salary_in_words, province, district, critical_stage_reviewed_at, ...standardCreateFields } = dbData;
+                const { agreed_salary_in_words, province, district, critical_stage_reviewed_at, created_by, ...standardCreateFields } = dbData;
                 standardCreateFields.app_name = APP_NAME; // Asegurar app_name en el reintento
                 
                 const { data: data2, error: error2 } = await supabase
@@ -498,6 +502,7 @@ export const candidatesApi = {
                 if (province !== undefined) optionalFields.province = province;
                 if (district !== undefined) optionalFields.district = district;
                 if (critical_stage_reviewed_at !== undefined) optionalFields.critical_stage_reviewed_at = critical_stage_reviewed_at;
+                if (created_by !== undefined) optionalFields.created_by = created_by;
                 
                 if (Object.keys(optionalFields).length > 0 && data2) {
                     try {
@@ -603,10 +608,10 @@ export const candidatesApi = {
 
         const dbData = candidateToDb(candidateData);
         
-        // Separar campos que pueden no existir en el esquema (province, district, critical_stage_reviewed_at, agreed_salary_in_words)
+        // Separar campos que pueden no existir en el esquema (province, district, critical_stage_reviewed_at, agreed_salary_in_words, created_by)
         // Si las columnas no existen en la BD, se omiten de la actualización
         // IMPORTANTE: discarded, discard_reason, discarded_at deben estar en standardFields para que se guarden
-        const { province, district, critical_stage_reviewed_at, agreed_salary_in_words, ...standardFields } = dbData;
+        const { province, district, critical_stage_reviewed_at, agreed_salary_in_words, created_by, ...standardFields } = dbData;
         
         // No permitir cambiar app_name
         delete standardFields.app_name;
@@ -673,6 +678,33 @@ export const candidatesApi = {
             } catch (err: any) {
                 // Ignorar errores de columna faltante
                 console.warn('No se pudo actualizar critical_stage_reviewed_at');
+            }
+        }
+
+        // Manejar created_by por separado para que la app siga funcionando antes de ejecutar la migración
+        if (created_by !== undefined) {
+            try {
+                const { error: createdByError } = await supabase
+                    .from('candidates')
+                    .update({ created_by })
+                    .eq('id', id)
+                    .eq('app_name', APP_NAME);
+
+                if (createdByError) {
+                    const errorMsg = createdByError.message || '';
+                    const isColumnError = errorMsg.includes('schema cache') ||
+                                         errorMsg.includes("Could not find") ||
+                                         errorMsg.includes("column") ||
+                                         createdByError.code === '42703';
+
+                    if (isColumnError) {
+                        console.warn('⚠️ La columna created_by no existe en candidates. Ejecuta MIGRATION_ADD_CANDIDATE_CREATED_BY.sql para habilitar el campo "Creado por".');
+                    } else {
+                        console.warn('Error actualizando created_by:', createdByError);
+                    }
+                }
+            } catch (err: any) {
+                console.warn('No se pudo actualizar created_by:', err?.message || err);
             }
         }
         

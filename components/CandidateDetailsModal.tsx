@@ -106,7 +106,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         if (!updatedCandidate) return;
         
         // Crear un hash simple del candidato para detectar cambios reales (sin attachments para evitar bucles)
-        const candidateHash = `${updatedCandidate.id}-${updatedCandidate.stageId}-${updatedCandidate.name}-${updatedCandidate.email}`;
+        const candidateHash = `${updatedCandidate.id}-${updatedCandidate.stageId}-${updatedCandidate.name}-${updatedCandidate.email}-${updatedCandidate.createdBy || ''}`;
         
         // Solo procesar si el candidato realmente cambió (no solo los attachments)
         if (lastProcessedCandidateRef.current === candidateHash && !isEditing) {
@@ -303,6 +303,9 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const candidateFromState = state.candidates.find(c => c.id === initialCandidate.id);
     const currentCandidate = isEditing ? editableCandidate : (candidateFromState || initialCandidate);
     const isArchived = !!currentCandidate.archived;
+    const creatorName = currentCandidate.createdBy
+        ? state.users.find(user => user.id === currentCandidate.createdBy)?.name || currentCandidate.createdBy
+        : 'Sin asignar';
     const processStages = process?.stages || [];
     const presentationStageIndex = processStages.findIndex(stage => stage.name.toLowerCase().includes('present'));
     const currentStageIndex = processStages.findIndex(stage => stage.id === currentCandidate.stageId);
@@ -968,6 +971,17 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                 <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" name="age" value={editableCandidate.age || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" name="dni" value={editableCandidate.dni || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" name="address" value={editableCandidate.address || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="block text-sm font-medium text-gray-700">Creado por</label>
+                                                    <select name="createdBy" value={editableCandidate.createdBy || ''} onChange={handleInputChange} className="mt-1 block w-full input">
+                                                        <option value="">Sin asignar</option>
+                                                        {state.users.map(user => (
+                                                            <option key={user.id} value={user.id}>
+                                                                {user.name} ({user.email})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div>
@@ -1101,6 +1115,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                             <h3 className="font-semibold text-gray-700 mb-3">Contacto e información personal</h3>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <DetailItem icon={Mail} label="Correo" value={currentCandidate.email} href={`mailto:${currentCandidate.email}`} />
+                                                <DetailItem icon={User} label="Creado por" value={creatorName} />
                                                 <div className="flex flex-col">
                                                     <div className="flex items-start text-sm">
                                                         <Phone className="w-4 h-4 mr-3 mt-0.5 text-gray-400 flex-shrink-0" />

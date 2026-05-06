@@ -139,6 +139,7 @@ export interface Candidate {
     hireDate?: string;
     googleDriveFolderId?: string; // Carpeta del candidato en Google Drive (dentro de la carpeta del proceso)
     googleDriveFolderName?: string; // Nombre de la carpeta del candidato
+    createdBy?: string; // userId del usuario que creó o figura como creador del candidato
     visibleToClients?: boolean; // Si es visible para usuarios tipo cliente/viewer
     offerAcceptedDate?: string; // Fecha de aceptación de oferta (para Time to Hire)
     applicationStartedDate?: string; // Fecha de inicio de solicitud (para Application Completion Rate)
