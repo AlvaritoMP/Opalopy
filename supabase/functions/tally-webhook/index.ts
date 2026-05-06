@@ -72,7 +72,7 @@ serve(async (req) => {
     // 2. Obtener el proceso asociado
     const { data: process, error: processError } = await supabase
       .from('processes')
-      .select('id, stages')
+      .select('id')
       .eq('id', integration.process_id)
       .eq('app_name', integration.app_name)
       .maybeSingle()
@@ -93,7 +93,23 @@ serve(async (req) => {
       )
     }
 
-    if (!process.stages || process.stages.length === 0) {
+    // 3. Obtener las etapas del proceso desde la tabla stages
+    const { data: stages, error: stagesError } = await supabase
+      .from('stages')
+      .select('id, name, order_index')
+      .eq('process_id', integration.process_id)
+      .eq('app_name', integration.app_name)
+      .order('order_index', { ascending: true })
+
+    if (stagesError) {
+      console.error('❌ Error buscando etapas:', stagesError)
+      return new Response(
+        JSON.stringify({ error: 'Error buscando etapas', details: stagesError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!stages || stages.length === 0) {
       console.error(`❌ Proceso no tiene etapas: ${integration.process_id}`)
       return new Response(
         JSON.stringify({ error: 'Process has no stages', processId: integration.process_id }),
@@ -101,12 +117,12 @@ serve(async (req) => {
       )
     }
 
-    console.log(`✅ Proceso encontrado con ${process.stages.length} etapas`)
+    console.log(`✅ Proceso encontrado con ${stages.length} etapas`)
 
-    // 3. Mapear campos de Tally a candidato
+    // 4. Mapear campos de Tally a candidato
     const candidateData = mapTallyToCandidate(tallyData, integration)
     candidateData.process_id = integration.process_id
-    candidateData.stage_id = process.stages[0].id
+    candidateData.stage_id = stages[0].id
     candidateData.app_name = integration.app_name
 
     console.log('👤 Datos del candidato mapeados:', JSON.stringify(candidateData, null, 2))
@@ -120,7 +136,9 @@ serve(async (req) => {
       )
     }
 
-    // 4. Crear el candidato en Supabase
+    const attachments = extractTallyAttachments(tallyData)
+
+    // 5. Crear el candidato en Supabase
     const { data: candidate, error: candidateError } = await supabase
       .from('candidates')
       .insert({
@@ -140,12 +158,37 @@ serve(async (req) => {
 
     console.log(`✅ Candidato creado: ${candidate.id} - ${candidate.name || candidate.email}`)
 
-    // 5. Crear entrada en historial
+    if (attachments.length > 0) {
+      const attachmentsToInsert = attachments.map((attachment: any) => ({
+        id: crypto.randomUUID(),
+        candidate_id: candidate.id,
+        name: attachment.name,
+        url: attachment.url,
+        type: attachment.mimeType || attachment.type || 'application/octet-stream',
+        size: attachment.size || 0,
+        category: 'CV',
+        uploaded_at: new Date().toISOString(),
+        comment_id: null,
+        app_name: integration.app_name,
+      }))
+
+      const { error: attachmentsError } = await supabase
+        .from('attachments')
+        .insert(attachmentsToInsert)
+
+      if (attachmentsError) {
+        console.warn('⚠️ Error guardando adjuntos (no crítico):', attachmentsError)
+      } else {
+        console.log(`✅ ${attachmentsToInsert.length} adjunto(s) guardado(s) para candidato ${candidate.id}`)
+      }
+    }
+
+    // 6. Crear entrada en historial
     const { error: historyError } = await supabase
       .from('candidate_history')
       .insert({
         candidate_id: candidate.id,
-        stage_id: process.stages[0].id,
+        stage_id: stages[0].id,
         moved_at: new Date().toISOString(),
         moved_by: null, // Integración automática
         app_name: integration.app_name,
@@ -181,21 +224,82 @@ serve(async (req) => {
 // Función helper para obtener nombres estándar de campos
 function getStandardFieldNames(candidateFieldKey: string): string[] {
   const mappings: { [key: string]: string[] } = {
-    name: ['name', 'nombre', 'nombre_completo', 'full_name', 'nombre_y_apellidos'],
-    email: ['email', 'correo', 'e-mail'],
-    phone: ['phone', 'telefono', 'teléfono', 'mobile', 'celular'],
+    name: ['name', 'nombre', 'nombre completo', 'nombre_completo', 'full_name', 'nombre_y_apellidos', 'question_8d2xpz'],
+    email: ['email', 'correo', 'correo electronico', 'correo electrónico', 'e-mail', 'question_ylg9wd'],
+    phone: ['phone', 'telefono', 'teléfono', 'mobile', 'celular', 'question_kzeyde'],
     phone2: ['phone2', 'telefono2', 'teléfono_secundario', 'secondary_phone'],
     description: ['description', 'descripcion', 'notas', 'comments'],
-    source: ['source', 'fuente', 'origen'],
-    salary_expectation: ['salaryexpectation', 'expectativa_salarial', 'salario_esperado'],
-    dni: ['dni', 'documento', 'documento_identidad', 'id_number'],
-    linkedin_url: ['linkedinurl', 'linkedin', 'perfil_linkedin'],
+    source: ['source', 'fuente', 'origen', 'donde viste', 'dónde viste', 'question_k0567v'],
+    salary_expectation: ['salaryexpectation', 'salary expectation', 'expectativa_salarial', 'expectativa salarial', 'salario_esperado', 'question_l07bap'],
+    dni: ['dni', 'documento', 'identificacion', 'identificación', 'documento_identidad', 'id_number', 'question_bbdxok'],
+    linkedin_url: ['linkedinurl', 'linkedin url', 'linkedin', 'perfil_linkedin', 'question_pvykjb'],
     address: ['address', 'direccion', 'dirección'],
     province: ['province', 'provincia'],
     district: ['district', 'distrito'],
-    age: ['age', 'edad'],
+    age: ['age', 'edad', 'question_v2ea7d'],
   }
   return mappings[candidateFieldKey] || [candidateFieldKey]
+}
+
+function normalizeFieldName(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]/g, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function stringifyTallyValue(field: any): string {
+  if (field.value === null || field.value === undefined) return ''
+
+  if (Array.isArray(field.value)) {
+    const optionTexts = field.value
+      .map((selectedValue: any) => {
+        const option = field.options?.find((item: any) => item.id === selectedValue)
+        return option?.text || selectedValue?.text || selectedValue?.name || selectedValue
+      })
+      .filter(Boolean)
+
+    return optionTexts.join(', ')
+  }
+
+  if (typeof field.value === 'object') {
+    return field.value.text || field.value.name || field.value.url || JSON.stringify(field.value)
+  }
+
+  return String(field.value)
+}
+
+function getCandidateFieldMappingKeys(candidateFieldKey: string): string[] {
+  const aliases: { [key: string]: string[] } = {
+    salary_expectation: ['salary_expectation', 'salaryExpectation'],
+    linkedin_url: ['linkedin_url', 'linkedinUrl'],
+  }
+
+  return aliases[candidateFieldKey] || [candidateFieldKey]
+}
+
+function getTallyFields(tallyData: any): any[] {
+  if (tallyData.data?.fields && Array.isArray(tallyData.data.fields)) {
+    return tallyData.data.fields
+  }
+
+  if (tallyData.fields && Array.isArray(tallyData.fields)) {
+    return tallyData.fields
+  }
+
+  return []
+}
+
+function extractTallyAttachments(tallyData: any): any[] {
+  const fields = getTallyFields(tallyData)
+  return fields
+    .filter((field: any) => field.type === 'FILE_UPLOAD' && Array.isArray(field.value))
+    .flatMap((field: any) => field.value)
+    .filter((file: any) => file?.url)
 }
 
 // Función para mapear datos de Tally a formato de candidato
@@ -218,26 +322,23 @@ function mapTallyToCandidate(tallyData: any, integration: any): any {
     age: null,
   }
 
-  // Obtener campos de Tally
-  // Tally puede enviar los datos en diferentes formatos
-  let fields: any[] = []
-  
-  if (tallyData.data && tallyData.data.fields) {
-    fields = tallyData.data.fields
-  } else if (tallyData.fields) {
-    fields = tallyData.fields
-  }
+  const fields = getTallyFields(tallyData)
+  const fieldsMap: { rawName: string; normalizedName: string; value: string }[] = []
 
-  // Convertir array de fields a objeto para búsqueda rápida
-  const fieldsMap: { [key: string]: string } = {}
   fields.forEach((field: any) => {
-    const key = field.key?.toLowerCase() || ''
-    const label = field.label?.toLowerCase() || ''
-    const value = field.value || ''
-    
-    if (key) fieldsMap[key] = value
-    if (label) fieldsMap[label] = value
+    const value = stringifyTallyValue(field)
+    const names = [field.key, field.label].filter(Boolean)
+
+    names.forEach((name: string) => {
+      fieldsMap.push({
+        rawName: name,
+        normalizedName: normalizeFieldName(name),
+        value,
+      })
+    })
   })
+
+  console.log('🔍 Campos recibidos:', fieldsMap.map(field => field.rawName).join(', '))
 
   // Obtener mapeo personalizado si existe
   let customMapping: { [key: string]: string } = {}
@@ -256,18 +357,32 @@ function mapTallyToCandidate(tallyData: any, integration: any): any {
   // Función helper para obtener valor de campo
   const getFieldValue = (candidateFieldKey: string): string => {
     // 1. Si hay mapeo personalizado, usarlo primero
-    if (customMapping[candidateFieldKey]) {
-      const mappedTallyField = customMapping[candidateFieldKey].toLowerCase()
-      if (fieldsMap[mappedTallyField] !== undefined && fieldsMap[mappedTallyField] !== '') {
-        return fieldsMap[mappedTallyField]
+    for (const mappingKey of getCandidateFieldMappingKeys(candidateFieldKey)) {
+      if (customMapping[mappingKey]) {
+        const mappedTallyField = normalizeFieldName(customMapping[mappingKey])
+        const matchedField = fieldsMap.find(field =>
+          field.normalizedName === mappedTallyField ||
+          field.normalizedName.includes(mappedTallyField) ||
+          mappedTallyField.includes(field.normalizedName)
+        )
+
+        if (matchedField?.value) {
+          return matchedField.value
+        }
       }
     }
     
     // 2. Intentar con nombres estándar
-    const standardNames = getStandardFieldNames(candidateFieldKey)
-    for (const name of standardNames) {
-      if (fieldsMap[name] !== undefined && fieldsMap[name] !== '') {
-        return fieldsMap[name]
+    const standardNames = getStandardFieldNames(candidateFieldKey).map(normalizeFieldName)
+    for (const standardName of standardNames) {
+      const matchedField = fieldsMap.find(field =>
+        field.normalizedName === standardName ||
+        field.normalizedName.includes(standardName) ||
+        standardName.includes(field.normalizedName)
+      )
+
+      if (matchedField?.value) {
+        return matchedField.value
       }
     }
     
