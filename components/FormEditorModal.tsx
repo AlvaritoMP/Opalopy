@@ -21,7 +21,9 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
     const [showWebhook, setShowWebhook] = useState(false);
     const [webhookUrl, setWebhookUrl] = useState(integration?.webhookUrl || '');
     const [isSaving, setIsSaving] = useState(false);
-    const [showFieldMapping, setShowFieldMapping] = useState(false);
+    const [showFieldMapping, setShowFieldMapping] = useState(
+        isEditing || Object.keys(integration?.fieldMapping || {}).length > 0
+    );
     const [fieldMapping, setFieldMapping] = useState<FieldMapping>(integration?.fieldMapping || {});
     
     // Campos disponibles en el candidato
@@ -65,7 +67,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                     formName: formName.trim(),
                     formIdOrUrl: formIdOrUrl.trim(),
                     processId,
-                    fieldMapping: Object.keys(fieldMapping).length > 0 ? fieldMapping : undefined,
+                    fieldMapping,
                 });
                 onClose();
             } else {

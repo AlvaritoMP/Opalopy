@@ -2,8 +2,6 @@ import { supabase } from '../supabase';
 import { FormIntegration, FieldMapping } from '../../types';
 import { APP_NAME } from '../appConfig';
 
-const appNameVisibilityFilter = `app_name.eq.${APP_NAME},app_name.is.null`;
-
 // Convertir de DB a tipo de aplicación
 function dbToFormIntegration(dbIntegration: any): FormIntegration {
     let fieldMapping: FieldMapping | undefined = undefined;
@@ -41,12 +39,14 @@ function formIntegrationToDb(integration: Partial<FormIntegration>): any {
     if (integration.formIdOrUrl !== undefined) dbIntegration.form_id_or_url = integration.formIdOrUrl;
     if (integration.processId !== undefined) dbIntegration.process_id = integration.processId;
     if (integration.webhookUrl !== undefined) dbIntegration.webhook_url = integration.webhookUrl;
-    // Solo incluir field_mapping si existe y tiene al menos una propiedad
-    if (integration.fieldMapping !== undefined && 
-        integration.fieldMapping !== null &&
-        typeof integration.fieldMapping === 'object' &&
-        Object.keys(integration.fieldMapping).length > 0) {
-        dbIntegration.field_mapping = JSON.stringify(integration.fieldMapping);
+    // Incluir field_mapping incluso si viene vacío para permitir limpiar mapeos existentes.
+    if (integration.fieldMapping !== undefined) {
+        dbIntegration.field_mapping =
+            integration.fieldMapping &&
+            typeof integration.fieldMapping === 'object' &&
+            Object.keys(integration.fieldMapping).length > 0
+                ? integration.fieldMapping
+                : null;
     }
     return dbIntegration;
 }
@@ -57,7 +57,6 @@ export const formIntegrationsApi = {
         const { data, error } = await supabase
             .from('form_integrations')
             .select('*')
-            .or(appNameVisibilityFilter)
             .order('created_at', { ascending: false });
         
         if (error) throw error;
@@ -72,7 +71,6 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('id', id)
-            .or(appNameVisibilityFilter)
             .maybeSingle();
         
         if (error) throw error;
@@ -87,7 +85,6 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('webhook_url', webhookUrl)
-            .or(appNameVisibilityFilter)
             .maybeSingle();
         
         if (error) throw error;
@@ -196,7 +193,6 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .update(updateData)
             .eq('id', id)
-            .or(appNameVisibilityFilter)
             .select()
             .single();
         
@@ -242,8 +238,7 @@ export const formIntegrationsApi = {
         const { error } = await supabase
             .from('form_integrations')
             .delete()
-            .eq('id', id)
-            .or(appNameVisibilityFilter);
+            .eq('id', id);
         
         if (error) throw error;
     },
