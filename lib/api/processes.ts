@@ -85,6 +85,54 @@ function processToDb(process: Partial<Process>): any {
     return dbProcess;
 }
 
+const processBaseSelectWithClient = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at';
+const processBaseSelect = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function isTransientSupabaseError(error: any): boolean {
+    const status = error?.status || error?.statusCode;
+    const message = (error?.message || error?.details || '').toLowerCase();
+    return status >= 500 || message.includes('timeout') || message.includes('temporarily') || message.includes('connection');
+}
+
+function isColumnSchemaError(error: any): boolean {
+    const message = (error?.message || error?.details || '').toLowerCase();
+    return error?.code === '42703' ||
+        error?.code === 'PGRST116' ||
+        message.includes('client_id') ||
+        message.includes('column') ||
+        message.includes('schema cache');
+}
+
+async function fetchProcessesBase(includeClientId: boolean): Promise<{ data: any[]; error: any }> {
+    const selectColumns = includeClientId ? processBaseSelectWithClient : processBaseSelect;
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const result = await supabase
+            .from('processes')
+            .select(selectColumns)
+            .eq('app_name', APP_NAME)
+            .eq('is_bulk_process', false)
+            .order('created_at', { ascending: false })
+            .limit(200);
+
+        if (!result.error) {
+            return { data: result.data || [], error: null };
+        }
+
+        lastError = { ...result.error, status: result.status };
+        if (!isTransientSupabaseError(lastError) || attempt === 2) {
+            break;
+        }
+
+        await wait(400 * (attempt + 1));
+    }
+
+    return { data: [], error: lastError };
+}
+
 export const processesApi = {
     // Obtener solo el conteo de attachments de un proceso (sin cargar los datos)
     // Incluye archivos de la base de datos y archivos en Google Drive (excluyendo carpetas de candidatos)
@@ -179,39 +227,18 @@ export const processesApi = {
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
     async getAll(includeAttachments: boolean = false): Promise<Process[]> {
         // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
-        // Nota: client_id puede no existir si la migración no se ha ejecutado, por lo que lo manejamos con try-catch
+        // Nota: client_id puede no existir si la migración no se ha ejecutado.
         let processes: any[] = [];
         let error: any = null;
-        
-        try {
-            const result = await supabase
-                .from('processes')
-                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at')
-                .eq('app_name', APP_NAME) // Filtrar solo procesos de esta app
-                .eq('is_bulk_process', false) // Excluir procesos masivos (se gestionan en otra sección)
-                .order('created_at', { ascending: false })
-                .limit(200); // Reducir límite para reducir egress
-            
-            processes = result.data || [];
-            error = result.error;
-        } catch (err: any) {
-            // Si falla porque client_id no existe, intentar sin ese campo
-            if (err.message?.includes('client_id') || err.message?.includes('column') || err.code === 'PGRST116') {
-                console.warn('⚠️ Columna client_id no existe, cargando procesos sin ese campo');
-                const result = await supabase
-                    .from('processes')
-                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
-                    .eq('app_name', APP_NAME)
-                    .eq('is_bulk_process', false) // Excluir procesos masivos
-                    .order('created_at', { ascending: false })
-                    .limit(200);
-                
-                processes = result.data || [];
-                error = result.error;
-            } else {
-                error = err;
-            }
+
+        let result = await fetchProcessesBase(true);
+        if (result.error && isColumnSchemaError(result.error)) {
+            console.warn('⚠️ Columna client_id no disponible, cargando procesos sin ese campo');
+            result = await fetchProcessesBase(false);
         }
+
+        processes = result.data || [];
+        error = result.error;
         
         if (error) throw error;
         if (!processes || processes.length === 0) return [];

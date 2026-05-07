@@ -129,8 +129,8 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
     
     return (
          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-                <form onSubmit={handleSubmit} className="flex flex-col h-full">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl h-[calc(100vh-2rem)] max-h-[90vh] flex flex-col overflow-hidden">
+                <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
                     <div className="p-6 border-b flex justify-between items-center flex-shrink-0">
                         <h2 className="text-2xl font-bold text-gray-800">
                             {isEditing 
@@ -142,7 +142,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                             <X className="w-6 h-6 text-gray-600" />
                         </button>
                     </div>
-                    <div className="p-6 space-y-4 overflow-y-auto flex-1">
+                    <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
                         <div>
                             <label htmlFor="platform" className="block text-sm font-medium text-gray-700">Plataforma</label>
                             <select 
@@ -258,7 +258,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                                             encontrar el campo usando nombres comunes).
                                         </p>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto p-2 bg-white rounded border border-blue-100">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto p-2 bg-white rounded border border-blue-100">
                                         {candidateFields.map(field => (
                                             <div key={field.key} className="space-y-1">
                                                 <label className="block text-xs font-semibold text-gray-700">
