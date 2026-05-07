@@ -57,6 +57,7 @@ export const formIntegrationsApi = {
         const { data, error } = await supabase
             .from('form_integrations')
             .select('*')
+            .eq('app_name', APP_NAME)
             .order('created_at', { ascending: false });
         
         if (error) throw error;
@@ -71,6 +72,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .maybeSingle();
         
         if (error) throw error;
@@ -85,6 +87,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('webhook_url', webhookUrl)
+            .eq('app_name', APP_NAME)
             .maybeSingle();
         
         if (error) throw error;
@@ -193,6 +196,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .update(updateData)
             .eq('id', id)
+            .eq('app_name', APP_NAME)
             .select()
             .single();
         
@@ -238,7 +242,8 @@ export const formIntegrationsApi = {
         const { error } = await supabase
             .from('form_integrations')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('app_name', APP_NAME);
         
         if (error) throw error;
     },
