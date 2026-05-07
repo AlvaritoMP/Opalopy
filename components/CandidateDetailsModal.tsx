@@ -1398,7 +1398,23 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             <div className="bg-gray-100 rounded-xl border flex flex-col items-center justify-center p-4 min-h-[620px]">
                                 {previewFile ? (
                                     <div className="w-full h-full">
-                                    {previewFile.type.startsWith('image/') ? (
+                                    {previewFile.url.includes('storage.tally.so') ? (
+                                        <div className="text-center p-8">
+                                            <FileText className="w-16 h-16 mx-auto text-gray-400" />
+                                            <p className="mt-2 text-gray-700 font-medium">Este archivo viene directamente de Tally.</p>
+                                            <p className="mt-1 text-sm text-gray-600">
+                                                Tally no permite previsualizar sus archivos privados dentro de la app. Los nuevos archivos se copiarán a Supabase para poder previsualizarlos.
+                                            </p>
+                                            <a
+                                                href={previewFile.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="mt-4 inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                                            >
+                                                <Download className="w-4 h-4 mr-2" /> Abrir archivo
+                                            </a>
+                                        </div>
+                                    ) : previewFile.type.startsWith('image/') ? (
                                         <img src={previewFile.url} alt={previewFile.name} className="w-full h-full object-contain" />
                                     ) : previewFile.type === 'application/pdf' || previewFile.url.includes('drive.google.com') ? (
                                         <iframe 

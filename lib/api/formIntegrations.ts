@@ -2,6 +2,8 @@ import { supabase } from '../supabase';
 import { FormIntegration, FieldMapping } from '../../types';
 import { APP_NAME } from '../appConfig';
 
+const appNameVisibilityFilter = `app_name.eq.${APP_NAME},app_name.is.null`;
+
 // Convertir de DB a tipo de aplicación
 function dbToFormIntegration(dbIntegration: any): FormIntegration {
     let fieldMapping: FieldMapping | undefined = undefined;
@@ -55,7 +57,7 @@ export const formIntegrationsApi = {
         const { data, error } = await supabase
             .from('form_integrations')
             .select('*')
-            .eq('app_name', APP_NAME)
+            .or(appNameVisibilityFilter)
             .order('created_at', { ascending: false });
         
         if (error) throw error;
@@ -70,7 +72,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('id', id)
-            .eq('app_name', APP_NAME)
+            .or(appNameVisibilityFilter)
             .maybeSingle();
         
         if (error) throw error;
@@ -85,7 +87,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .select('*')
             .eq('webhook_url', webhookUrl)
-            .eq('app_name', APP_NAME)
+            .or(appNameVisibilityFilter)
             .maybeSingle();
         
         if (error) throw error;
@@ -187,13 +189,14 @@ export const formIntegrationsApi = {
         
         // Separar field_mapping para manejarlo por separado
         const { field_mapping, ...standardFields } = dbData;
+        const updateData = { ...standardFields, app_name: APP_NAME };
         
         // Actualizar campos estándar primero
         const { data, error } = await supabase
             .from('form_integrations')
-            .update(standardFields)
+            .update(updateData)
             .eq('id', id)
-            .eq('app_name', APP_NAME)
+            .or(appNameVisibilityFilter)
             .select()
             .single();
         
@@ -240,7 +243,7 @@ export const formIntegrationsApi = {
             .from('form_integrations')
             .delete()
             .eq('id', id)
-            .eq('app_name', APP_NAME);
+            .or(appNameVisibilityFilter);
         
         if (error) throw error;
     },

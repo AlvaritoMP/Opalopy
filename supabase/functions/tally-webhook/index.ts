@@ -7,6 +7,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const ATTACHMENTS_BUCKET = 'candidate-attachments'
+
 serve(async (req) => {
   // Manejar CORS preflight
   if (req.method === 'OPTIONS') {
@@ -164,11 +166,18 @@ serve(async (req) => {
     console.log(`✅ Candidato creado: ${candidate.id} - ${candidate.name || candidate.email}`)
 
     if (attachments.length > 0) {
-      const attachmentsToInsert = attachments.map((attachment: any) => ({
+      const materializedAttachments = await materializeTallyAttachments(
+        supabase,
+        attachments,
+        candidate.id,
+        integration.app_name,
+      )
+
+      const attachmentsToInsert = materializedAttachments.map((attachment: any) => ({
         id: crypto.randomUUID(),
         candidate_id: candidate.id,
         name: attachment.name,
-        url: attachment.url,
+        url: attachment.publicUrl || attachment.url,
         type: attachment.mimeType || attachment.type || 'application/octet-stream',
         size: attachment.size || 0,
         category: 'CV',
@@ -305,6 +314,102 @@ function extractTallyAttachments(tallyData: any): any[] {
     .filter((field: any) => field.type === 'FILE_UPLOAD' && Array.isArray(field.value))
     .flatMap((field: any) => field.value)
     .filter((file: any) => file?.url)
+}
+
+function sanitizeFileName(fileName: string): string {
+  return (fileName || 'archivo')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w.\-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+async function ensureAttachmentsBucket(supabase: any) {
+  const bucketOptions = {
+    public: true,
+    fileSizeLimit: 20 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'],
+  }
+
+  const { data: existingBucket, error: getBucketError } = await supabase.storage.getBucket(ATTACHMENTS_BUCKET)
+  if (existingBucket && !getBucketError) {
+    const { error: updateError } = await supabase.storage.updateBucket(ATTACHMENTS_BUCKET, bucketOptions)
+    if (updateError) {
+      console.warn('⚠️ No se pudo actualizar bucket de adjuntos:', updateError)
+    }
+    return
+  }
+
+  const { error } = await supabase.storage.createBucket(ATTACHMENTS_BUCKET, bucketOptions)
+
+  if (error && !String(error.message || '').toLowerCase().includes('already exists')) {
+    console.warn('⚠️ No se pudo crear/verificar bucket de adjuntos:', error)
+  }
+}
+
+async function uploadTallyAttachmentToStorage(supabase: any, attachment: any, candidateId: string, appName: string) {
+  await ensureAttachmentsBucket(supabase)
+
+  const fileResponse = await fetch(attachment.url)
+  if (!fileResponse.ok) {
+    throw new Error(`No se pudo descargar archivo de Tally (${fileResponse.status})`)
+  }
+
+  const contentType = attachment.mimeType || fileResponse.headers.get('content-type') || 'application/octet-stream'
+  const fileBody = await fileResponse.arrayBuffer()
+  const safeName = sanitizeFileName(attachment.name || attachment.id || 'archivo')
+  const storagePath = `tally/${appName}/${candidateId}/${crypto.randomUUID()}-${safeName}`
+
+  let uploadResult = await supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .upload(storagePath, fileBody, {
+      contentType,
+      upsert: false,
+    })
+
+  if (uploadResult.error && String(uploadResult.error.message || '').toLowerCase().includes('bucket')) {
+    await ensureAttachmentsBucket(supabase)
+    uploadResult = await supabase.storage
+      .from(ATTACHMENTS_BUCKET)
+      .upload(storagePath, fileBody, {
+        contentType,
+        upsert: false,
+      })
+  }
+
+  if (uploadResult.error) {
+    throw uploadResult.error
+  }
+
+  const { data } = supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .getPublicUrl(storagePath)
+
+  return {
+    ...attachment,
+    url: data.publicUrl,
+    publicUrl: data.publicUrl,
+    mimeType: contentType,
+    size: attachment.size || fileBody.byteLength,
+  }
+}
+
+async function materializeTallyAttachments(supabase: any, attachments: any[], candidateId: string, appName: string): Promise<any[]> {
+  const uploadedAttachments = []
+
+  for (const attachment of attachments) {
+    try {
+      const uploadedAttachment = await uploadTallyAttachmentToStorage(supabase, attachment, candidateId, appName)
+      uploadedAttachments.push(uploadedAttachment)
+      console.log(`✅ Archivo de Tally copiado a Supabase Storage: ${attachment.name}`)
+    } catch (error) {
+      console.warn(`⚠️ No se pudo copiar archivo de Tally, se conservará URL original: ${attachment.name}`, error)
+      uploadedAttachments.push(attachment)
+    }
+  }
+
+  return uploadedAttachments
 }
 
 // Función para mapear datos de Tally a formato de candidato
