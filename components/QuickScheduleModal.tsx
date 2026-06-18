@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, User } from 'lucide-react';
 import { useAppState } from '../App';
 
@@ -8,6 +8,12 @@ interface QuickScheduleModalProps {
     candidateId: string;
     candidateName: string;
     onSchedule: (date: string, time: string, interviewerId: string, notes?: string) => Promise<void>;
+    /** Si hay entrevista existente, el modal reagenda en lugar de crear otra. */
+    isReschedule?: boolean;
+    initialDate?: string;
+    initialTime?: string;
+    initialInterviewerId?: string;
+    initialNotes?: string;
 }
 
 export const QuickScheduleModal: React.FC<QuickScheduleModalProps> = ({
@@ -16,13 +22,26 @@ export const QuickScheduleModal: React.FC<QuickScheduleModalProps> = ({
     candidateId,
     candidateName,
     onSchedule,
+    isReschedule = false,
+    initialDate = '',
+    initialTime = '',
+    initialInterviewerId = '',
+    initialNotes = '',
 }) => {
     const { state } = useAppState();
-    const [date, setDate] = useState('');
-    const [time, setTime] = useState('');
-    const [interviewerId, setInterviewerId] = useState('');
-    const [notes, setNotes] = useState('');
+    const [date, setDate] = useState(initialDate);
+    const [time, setTime] = useState(initialTime);
+    const [interviewerId, setInterviewerId] = useState(initialInterviewerId);
+    const [notes, setNotes] = useState(initialNotes);
     const [isScheduling, setIsScheduling] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setDate(initialDate);
+        setTime(initialTime);
+        setInterviewerId(initialInterviewerId);
+        setNotes(initialNotes);
+    }, [isOpen, initialDate, initialTime, initialInterviewerId, initialNotes]);
 
     // Obtener usuarios que pueden ser entrevistadores (admin o recruiter)
     const interviewers = state.users.filter(u => 
@@ -68,7 +87,7 @@ export const QuickScheduleModal: React.FC<QuickScheduleModalProps> = ({
                     <div className="flex items-center gap-3">
                         <Calendar className="w-6 h-6 text-primary-600" />
                         <h2 className="text-xl font-semibold text-gray-900">
-                            Agendar Entrevista
+                            {isReschedule ? 'Reagendar Entrevista' : 'Agendar Entrevista'}
                         </h2>
                     </div>
                     <button
@@ -169,7 +188,7 @@ export const QuickScheduleModal: React.FC<QuickScheduleModalProps> = ({
                             ) : (
                                 <>
                                     <Calendar className="w-4 h-4" />
-                                    Agendar
+                                    {isReschedule ? 'Guardar reagenda' : 'Agendar'}
                                 </>
                             )}
                         </button>

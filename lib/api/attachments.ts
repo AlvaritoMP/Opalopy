@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { Attachment } from '../../types';
+import { APP_NAME } from '../appConfig';
 
 export const attachmentsApi = {
     // Crear adjunto
@@ -16,6 +17,7 @@ export const attachmentsApi = {
                 process_id: (attachment as any).processId || null,
                 comment_id: (attachment as any).commentId || null,
                 uploaded_by: uploadedBy || null,
+                app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             })
             .select()
             .single();

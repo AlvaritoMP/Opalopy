@@ -1,73 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://afhiiplxqtodqxvmswor.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmaGlpcGx4cXRvZHF4dm1zd29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4Njg4MTYsImV4cCI6MjA3ODQ0NDgxNn0.r9YmrHHajLsd5YHUkPnmD7UazpvmsW0TfqC5jy0_3ZU';
+// Configura estas variables en .env.local
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-const SUPABASE_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_REQUEST_TIMEOUT_MS) || 30000;
-const RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504, 522, 523, 524]);
-const RETRIABLE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-function getRequestMethod(init?: RequestInit): string {
-    return (init?.method || 'GET').toUpperCase();
-}
-
-function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getRetryDelay(attempt: number): number {
-    return 350 * (attempt + 1);
-}
-
-async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const method = getRequestMethod(init);
-    const canRetry = RETRIABLE_METHODS.has(method);
-    const maxAttempts = canRetry ? 3 : 1;
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS);
-
-        try {
-            const response = await fetch(input, {
-                ...init,
-                signal: controller.signal,
-            });
-
-            if (!canRetry || !RETRIABLE_STATUS_CODES.has(response.status) || attempt === maxAttempts - 1) {
-                return response;
-            }
-        } catch (error) {
-            lastError = error;
-
-            if (!canRetry || attempt === maxAttempts - 1) {
-                throw error;
-            }
-        } finally {
-            window.clearTimeout(timeoutId);
-        }
-
-        await delay(getRetryDelay(attempt));
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Supabase request failed after retries');
+// Validar que las credenciales estén configuradas
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('⚠️ Supabase no está configurado. Por favor, configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env.local');
 }
 
 // Configurar cliente de Supabase con opciones mejoradas
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Si no hay credenciales, usar valores dummy para evitar errores de inicialización
+export const supabase = createClient(
+    supabaseUrl || 'https://placeholder.supabase.co',
+    supabaseAnonKey || 'placeholder-key',
+    {
     auth: {
         persistSession: false, // No persistir sesión en localStorage para evitar problemas
         autoRefreshToken: false,
     },
-    db: {
-        schema: 'public',
-    },
     global: {
-        fetch: fetchWithTimeout,
         headers: {
             'X-Client-Info': 'ats-pro-web',
         },
+    },
+    db: {
+        schema: 'public',
     },
 });
 
@@ -115,11 +73,15 @@ export function getErrorMessage(error: any): string {
 
 // Función helper para verificar si Supabase está configurado
 export function isSupabaseConfigured(): boolean {
-    return !!(supabaseUrl && supabaseAnonKey);
+    return !!(supabaseUrl && supabaseAnonKey && supabaseUrl !== 'https://placeholder.supabase.co');
 }
 
 // Función helper para establecer el usuario actual en la sesión
 export async function setCurrentUser(userId: string) {
+    if (!isSupabaseConfigured()) {
+        console.warn('Supabase no está configurado, saltando setCurrentUser');
+        return;
+    }
     try {
         // Intentar usar la función RPC si existe
         const { error } = await supabase.rpc('set_current_user', { user_id: userId });
@@ -134,18 +96,4 @@ export async function setCurrentUser(userId: string) {
     }
 }
 
-// Función helper para obtener el usuario actual
-export async function getCurrentUserId(): Promise<string | null> {
-    try {
-        const { data, error } = await supabase.rpc('get_current_user_id');
-        if (error) {
-            console.error('Error getting current user:', error);
-            return null;
-        }
-        return data;
-    } catch (err) {
-        console.error('Error in getCurrentUserId:', err);
-        return null;
-    }
-}
 

@@ -11,7 +11,7 @@ export const commentsApi = {
                 candidate_id: candidateId,
                 text: comment.text,
                 user_id: comment.userId,
-                app_name: APP_NAME,
+                app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             })
             .select()
             .single();
@@ -28,13 +28,13 @@ export const commentsApi = {
                 category: att.category,
                 comment_id: data.id,
                 uploaded_by: comment.userId,
-                app_name: APP_NAME,
+                app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             }));
 
             await supabase.from('attachments').insert(attachmentsToInsert);
         }
 
-        // Obtener comentario con adjuntos
+        // Obtener comentario con adjuntos (solo de esta app)
         const { data: attachments } = await supabase
             .from('attachments')
             .select('*')
@@ -58,14 +58,14 @@ export const commentsApi = {
         };
     },
 
-    // Eliminar comentario
+    // Eliminar comentario (solo de esta app)
     async delete(commentId: string): Promise<void> {
         // Los adjuntos se eliminan automáticamente por CASCADE
         const { error } = await supabase
             .from('comments')
             .delete()
             .eq('id', commentId)
-            .eq('app_name', APP_NAME);
+            .eq('app_name', APP_NAME); // Asegurar que solo se eliminen comentarios de esta app
         
         if (error) throw error;
     },

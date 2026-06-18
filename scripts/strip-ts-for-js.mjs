@@ -1,0 +1,25 @@
+import fs from 'fs';
+
+let s = fs.readFileSync('lib/tallyWebhookMapping.js', 'utf8');
+s = s.replace(/export interface [\s\S]*?\n\}\n\n/g, '');
+s = s.replace(/^type TallyFieldRow = [\s\S]*?;\n\n/m, '');
+s = s.replace(/\): [^{]+(\{)/g, ')$1');
+s = s.replace(/: TallyFieldsIndex/g, '');
+s = s.replace(/: TallyFieldRow\[\]/g, '');
+s = s.replace(/ as \{[^}]+\}/g, '');
+s = s.replace(/ as Record<[^>]+>/g, '');
+s = s.replace(/: Record<string, string>/g, '');
+s = s.replace(/: Record<string, unknown>/g, '');
+s = s.replace(/: BulkProcessConfigLike(\s*\|\s*string\s*\|\s*null)?/g, '');
+s = s.replace(/: BulkProcessConfigLike\??/g, '');
+s = s.replace(/: unknown/g, '');
+s = s.replace(/\(field: \{[^}]+\}\)/g, '(field)');
+s = s.replace(/\(index,/g, '(index,');
+s = s.replace(/: string\[\]/g, '');
+s = s.replace(/: string/g, '');
+s = s.replace(/: boolean/g, '');
+s = s.replace(/: number/g, '');
+s = s.replace(/: \{[^}]*\}\[\]/g, '[]');
+s = '/** Node: lib/tallyWebhookMapping.js — sync with supabase/functions/_shared/tallyMapping.ts */\n' + s;
+fs.writeFileSync('lib/tallyWebhookMapping.js', s);
+console.log('stripped');

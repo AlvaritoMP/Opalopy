@@ -1,0 +1,80 @@
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Imagen del proceso</label>
+                                <p className="text-xs text-gray-500 mb-2">Se muestra en la tarjeta del proceso masivo.</p>
+                                <div className="flex items-center gap-4">
+                                    {flyerUrl && (
+                                        <div
+                                            className="w-28 h-20 rounded-lg border-2 border-gray-200 shrink-0"
+                                            style={{
+                                                backgroundImage: `url(${flyerUrl})`,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: flyerPosition,
+                                            }}
+                                        />
+                                    )}
+                                    <div className="flex flex-col gap-2">
+                                        <button type="button" onClick={() => flyerInputRef.current?.click()} className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+                                            {flyerUrl ? 'Cambiar imagen' : 'Subir imagen'}
+                                        </button>
+                                        {flyerUrl && (
+                                            <button type="button" onClick={() => setShowFlyerEditor(!showFlyerEditor)} className="px-3 py-2 text-sm text-primary-700 bg-primary-50 border border-primary-200 rounded-lg">
+                                                {showFlyerEditor ? 'Ocultar editor' : 'Ajustar posición'}
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input type="file" accept="image/*" ref={flyerInputRef} onChange={handleFlyerUpload} className="hidden" />
+                                </div>
+                                {showFlyerEditor && flyerUrl && (
+                                    <div
+                                        className="mt-3 h-40 rounded-lg border-2 border-gray-300 cursor-crosshair"
+                                        style={{ backgroundImage: `url(${flyerUrl})`, backgroundSize: 'cover', backgroundPosition: flyerPosition }}
+                                        onMouseDown={e => {
+                                            setIsDraggingFlyer(true);
+                                            const r = e.currentTarget.getBoundingClientRect();
+                                            handleFlyerPositionChange(
+                                                Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100)),
+                                                Math.max(0, Math.min(100, ((e.clientY - r.top) / r.height) * 100))
+                                            );
+                                        }}
+                                        onMouseMove={e => {
+                                            if (!isDraggingFlyer) return;
+                                            const r = e.currentTarget.getBoundingClientRect();
+                                            handleFlyerPositionChange(
+                                                Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100)),
+                                                Math.max(0, Math.min(100, ((e.clientY - r.top) / r.height) * 100))
+                                            );
+                                        }}
+                                        onMouseUp={() => setIsDraggingFlyer(false)}
+                                        onMouseLeave={() => setIsDraggingFlyer(false)}
+                                    />
+                                )}
+                            </div>
+
+                            <div>
+                                <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                                    <Paperclip className="w-4 h-4" /> Documentos del proceso
+                                </h3>
+                                <div className="space-y-2 mb-2">
+                                    {attachments.map(att => (
+                                        <div key={att.id} className="flex items-center justify-between p-2 rounded-lg border bg-gray-50">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <FileText className="w-4 h-4 text-gray-500 shrink-0" />
+                                                <span className="text-sm truncate">{att.name}</span>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-gray-200 rounded"><Eye className="w-4 h-4" /></a>
+                                                <button type="button" onClick={() => handleDeleteAttachment(att.id)} className="p-1 hover:bg-red-100 rounded"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <input type="file" ref={attachmentInputRef} onChange={handleAttachmentUpload} className="hidden" />
+                                <button type="button" disabled={isUploadingAttachment} onClick={() => attachmentInputRef.current?.click()} className="flex items-center gap-1 text-sm text-primary-600 disabled:opacity-50">
+                                    <Upload className="w-4 h-4" /> {isUploadingAttachment ? `Subiendo ${uploadingFileName}...` : 'Subir documento'}
+                                </button>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Etapas del Proceso *

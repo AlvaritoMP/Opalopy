@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAppState } from '../App';
-import { Process, Attachment, Candidate, User as AppUser } from '../types';
+import { Process, Attachment, Candidate } from '../types';
 import { X, Upload, FileText, Trash2, User } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
-import { usersApi } from '../lib/api/users';
 
 interface AddCandidateModalProps {
     process: Process;
     onClose: () => void;
+    onSuccess?: () => void;
 }
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -19,21 +19,12 @@ const fileToBase64 = (file: File): Promise<string> => {
     });
 };
 
-export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, onClose }) => {
+export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, onClose, onSuccess }) => {
     const { state, actions, getLabel } = useAppState();
     const getDefaultSource = (): Candidate['source'] => {
-        // Validar que candidateSources sea un array válido
-        const candidateSources = state.settings?.candidateSources;
-        const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
-        const sources = isValidArray
-            ? candidateSources
+        const sources = state.settings?.candidateSources && state.settings.candidateSources.length > 0
+            ? state.settings.candidateSources
             : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
-        
-        // Log para debuggear
-        if (!isValidArray && candidateSources !== undefined) {
-            console.warn('⚠️ candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources);
-        }
-        
         return sources[0] || 'Otro';
     };
     const [name, setName] = useState('');
@@ -49,48 +40,6 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
     const [dni, setDni] = useState('');
     const [linkedinUrl, setLinkedinUrl] = useState('');
     const [address, setAddress] = useState('');
-    const [createdBy, setCreatedBy] = useState(state.currentUser?.id || '');
-    const [selectableUsers, setSelectableUsers] = useState<AppUser[]>(
-        state.users.length > 0 ? state.users : (state.currentUser ? [state.currentUser] : [])
-    );
-    
-    // Recargar settings cuando se abre el modal para asegurar que tenemos la versión más reciente
-    useEffect(() => {
-        if (actions.reloadSettings) {
-            actions.reloadSettings().catch(err => {
-                console.warn('Error reloading settings in AddCandidateModal:', err);
-            });
-        }
-    }, []); // Solo al montar el componente
-
-    useEffect(() => {
-        if (state.users.length > 0) {
-            setSelectableUsers(state.users);
-            return;
-        }
-
-        usersApi.getAll()
-            .then(users => {
-                if (users.length > 0) {
-                    setSelectableUsers(users);
-                } else if (state.currentUser) {
-                    setSelectableUsers([state.currentUser]);
-                }
-            })
-            .catch(error => {
-                console.warn('Error cargando usuarios para selector de creador:', error);
-                if (state.currentUser) {
-                    setSelectableUsers([state.currentUser]);
-                }
-            });
-    }, [state.users, state.currentUser]);
-    
-    // Log candidateSources cuando cambia
-    useEffect(() => {
-        const candidateSources = state.settings?.candidateSources;
-        console.log('🔍 AddCandidateModal - candidateSources changed:', candidateSources);
-        console.log('🔍 AddCandidateModal - IsArray:', Array.isArray(candidateSources), 'Length:', Array.isArray(candidateSources) ? candidateSources.length : 'N/A');
-    }, [state.settings?.candidateSources]);
     const [province, setProvince] = useState<string>('');
     const [district, setDistrict] = useState<string>('');
     const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -124,23 +73,22 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                 dni,
                 linkedinUrl,
                 address,
-                createdBy: createdBy || undefined,
                 province,
                 district,
                 applicationStartedDate: new Date().toISOString(), // Set automatically when candidate is created
+                registrationOrigin: 'manual',
             });
             
-            // Recargar candidatos del proceso para asegurar sincronización
-            if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
+            if (onSuccess) {
+                onSuccess();
+            } else if (actions.reloadCandidates && typeof actions.reloadCandidates === 'function') {
                 try {
                     await actions.reloadCandidates();
                 } catch (reloadError: any) {
                     console.warn('Error al recargar candidatos después de crear (no crítico):', reloadError);
-                    // No mostrar error al usuario, el candidato ya se creó
                 }
             }
             
-            // Solo cerrar el modal si la creación fue exitosa
             onClose();
         } catch (error: any) {
             // El error ya fue manejado y mostrado en addCandidate
@@ -210,17 +158,6 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                         <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" value={age} onChange={e => setAge(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" value={dni} onChange={e => setDni(e.target.value)} className="mt-1 block w-full input"/></div>
                         <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Ej: Ciudad de México" className="mt-1 block w-full input"/></div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Creado por</label>
-                            <select value={createdBy} onChange={e => setCreatedBy(e.target.value)} className="mt-1 block w-full input">
-                                <option value="">Sin asignar</option>
-                                {selectableUsers.map(user => (
-                                    <option key={user.id} value={user.id}>
-                                        {user.name} ({user.email})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
                         <div>
                             <SearchableSelect
                                 label="Provincia"
@@ -261,23 +198,12 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ process, o
                          <div>
                             <label className="block text-sm font-medium text-gray-700">Fuente</label>
                             <select value={source} onChange={e => setSource(e.target.value as Candidate['source'])} className="mt-1 block w-full input">
-                                {(() => {
-                                    // Validar que candidateSources sea un array válido
-                                    const candidateSources = state.settings?.candidateSources;
-                                    const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
-                                    const sources = isValidArray
-                                        ? candidateSources
-                                        : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
-                                    
-                                    // Log para debuggear si hay problema
-                                    if (!isValidArray && candidateSources !== undefined) {
-                                        console.warn('⚠️ AddCandidateModal: candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources, 'IsArray:', Array.isArray(candidateSources));
-                                    }
-                                    
-                                    return sources.map(opt => (
-                                        <option key={opt} value={opt}>{opt}</option>
-                                    ));
-                                })()}
+                                {(state.settings?.candidateSources && state.settings.candidateSources.length > 0 
+                                    ? state.settings.candidateSources 
+                                    : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro']
+                                ).map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
                             </select>
                         </div>
 

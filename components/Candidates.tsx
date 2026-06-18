@@ -1,8 +1,9 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAppState } from '../App';
 import { Candidate, Process } from '../types';
-import { Search, Edit } from 'lucide-react';
+import { Search, Edit, Send } from 'lucide-react';
 import { CandidateDetailsModal } from './CandidateDetailsModal';
+import { SendToOpsFlowModal } from './SendToOpsFlowModal';
 
 export const Candidates: React.FC = () => {
     const { state, getLabel } = useAppState();
@@ -10,6 +11,8 @@ export const Candidates: React.FC = () => {
     const [processId, setProcessId] = useState<string>('all');
     const [stageId, setStageId] = useState<string>('all');
     const [selected, setSelected] = useState<Candidate | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isSendModalOpen, setIsSendModalOpen] = useState(false);
 
     const stagesForProcess = useMemo(() => {
         if (processId === 'all') return [];
@@ -19,11 +22,11 @@ export const Candidates: React.FC = () => {
 
     const userRole = state.currentUser?.role;
     const isClientOrViewer = userRole === 'client' || userRole === 'viewer';
+    const canSendToOpsFlow = userRole === 'admin' || userRole === 'recruiter';
     
     const lower = query.trim().toLowerCase();
     const results = useMemo(() => {
         return state.candidates.filter(c => {
-            // Filtrar por visibilidad según el rol
             if (isClientOrViewer && !c.visibleToClients) return false;
             
             const matchesText =
@@ -41,10 +44,52 @@ export const Candidates: React.FC = () => {
         });
     }, [state.candidates, state.processes, lower, processId, stageId, isClientOrViewer]);
 
+    const selectedCandidates = useMemo(
+        () => state.candidates.filter(candidate => selectedIds.has(candidate.id)),
+        [state.candidates, selectedIds]
+    );
+
+    const allVisibleSelected = results.length > 0 && results.every(candidate => selectedIds.has(candidate.id));
+
+    const toggleCandidateSelection = (candidateId: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(candidateId)) next.delete(candidateId);
+            else next.add(candidateId);
+            return next;
+        });
+    };
+
+    const toggleSelectAllVisible = () => {
+        if (allVisibleSelected) {
+            setSelectedIds(prev => {
+                const next = new Set(prev);
+                for (const candidate of results) next.delete(candidate.id);
+                return next;
+            });
+            return;
+        }
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            for (const candidate of results) next.add(candidate.id);
+            return next;
+        });
+    };
+
     return (
         <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center mb-4 md:mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 md:mb-6">
                 <h1 className="text-2xl md:text-3xl font-bold text-gray-800">{getLabel('menu_candidates', 'Candidatos')}</h1>
+                {canSendToOpsFlow && selectedIds.size > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setIsSendModalOpen(true)}
+                        className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
+                    >
+                        <Send className="w-4 h-4 mr-2" />
+                        Enviar a OpsFlow ({selectedIds.size})
+                    </button>
+                )}
             </div>
 
             <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-200 shadow-sm mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
@@ -74,9 +119,20 @@ export const Candidates: React.FC = () => {
             <div className="flex-1 overflow-hidden flex flex-col">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
                     <div className="overflow-x-auto overflow-y-auto flex-1">
-                        <table className="w-full text-sm text-left text-gray-500 min-w-[600px]">
+                        <table className="w-full text-sm text-left text-gray-500 min-w-[680px]">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
                                 <tr>
+                                    {canSendToOpsFlow && (
+                                        <th className="px-3 md:px-4 py-3 w-10">
+                                            <input
+                                                type="checkbox"
+                                                checked={allVisibleSelected}
+                                                onChange={toggleSelectAllVisible}
+                                                aria-label="Seleccionar todos los visibles"
+                                                className="rounded border-gray-300"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="px-3 md:px-6 py-3">Candidato</th>
                                     <th className="px-3 md:px-6 py-3">Email</th>
                                     <th className="px-3 md:px-6 py-3">Teléfono</th>
@@ -92,6 +148,17 @@ export const Candidates: React.FC = () => {
                                     const stage = process?.stages.find(s => s.id === c.stageId);
                                     return (
                                         <tr key={c.id} className="bg-white border-b hover:bg-gray-50">
+                                            {canSendToOpsFlow && (
+                                                <td className="px-3 md:px-4 py-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedIds.has(c.id)}
+                                                        onChange={() => toggleCandidateSelection(c.id)}
+                                                        aria-label={`Seleccionar ${c.name}`}
+                                                        className="rounded border-gray-300"
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="px-3 md:px-6 py-3 font-medium text-gray-900 whitespace-nowrap">{c.name}</td>
                                             <td className="px-3 md:px-6 py-3 text-xs md:text-sm">{c.email}</td>
                                             <td className="px-3 md:px-6 py-3 text-xs md:text-sm">{c.phone || '-'}</td>
@@ -108,7 +175,7 @@ export const Candidates: React.FC = () => {
                                 })}
                                 {results.length === 0 && (
                                     <tr>
-                                        <td className="px-6 py-8 text-center text-gray-500" colSpan={7}>Sin resultados</td>
+                                        <td className="px-6 py-8 text-center text-gray-500" colSpan={canSendToOpsFlow ? 8 : 7}>Sin resultados</td>
                                     </tr>
                                 )}
                             </tbody>
@@ -118,9 +185,14 @@ export const Candidates: React.FC = () => {
             </div>
 
             {selected && <CandidateDetailsModal candidate={selected} onClose={() => setSelected(null)} />}
+            {canSendToOpsFlow && (
+                <SendToOpsFlowModal
+                    isOpen={isSendModalOpen}
+                    onClose={() => setIsSendModalOpen(false)}
+                    candidates={selectedCandidates}
+                    onSent={() => setSelectedIds(new Set())}
+                />
+            )}
         </div>
     );
 };
-
-
-

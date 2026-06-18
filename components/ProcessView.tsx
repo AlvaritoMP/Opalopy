@@ -1,14 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../App';
 import { CandidateCard } from './CandidateCard';
-import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList, Tag, Users, ArrowLeft, CheckCircle, Mail, MessageCircle, Download } from 'lucide-react';
+import { Plus, Edit, Briefcase, DollarSign, BarChart, Clock, Paperclip, X, FileText, ClipboardList, Tag, Users, ArrowLeft, CheckCircle, Mail, MessageCircle, Download, FileUp, Table2 } from 'lucide-react';
 import { AddCandidateModal } from './AddCandidateModal';
 import { ProcessEditorModal } from './ProcessEditorModal';
 import { BulkLetterModal } from './BulkLetterModal';
 import { CloseProcessModal } from './CloseProcessModal';
 import { ProcessCommunicationModal } from './ProcessCommunicationModal';
+import { ProcessImportModal } from './BulkImportView';
+import { BulkProcessesView } from './BulkProcessesView';
 import { Attachment, UserRole, ProcessStatus, Candidate } from '../types';
 import * as XLSX from 'xlsx';
+import { openMailCompose, getMailComposeToastMessage } from '../lib/openMailto';
+import {
+    getProcessWorkMode,
+    setProcessWorkMode,
+    supportsHighDensityTableView,
+    type ProcessWorkMode,
+} from '../lib/processViewMode';
+import { processesApi } from '../lib/api/processes';
 
 interface ProcessViewProps {
     processId: string;
@@ -93,12 +103,16 @@ const ProcessAttachmentsModal: React.FC<{
 
 export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     const { state, actions } = useAppState();
+    const [workMode, setWorkMode] = useState<ProcessWorkMode>(() =>
+        getProcessWorkMode(processId, state.currentUser?.id)
+    );
     const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
     const [isProcessEditorOpen, setIsProcessEditorOpen] = useState(false);
     const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
     const [isBulkLetterOpen, setIsBulkLetterOpen] = useState(false);
     const [isCloseProcessOpen, setIsCloseProcessOpen] = useState(false);
     const [isCommunicationOpen, setIsCommunicationOpen] = useState(false);
+    const [isImportOpen, setIsImportOpen] = useState(false);
     const [selectedCandidates, setSelectedCandidates] = useState<string[]>([]);
     const [attachmentsCount, setAttachmentsCount] = useState<number | null>(null);
     const [processAttachments, setProcessAttachments] = useState<Attachment[]>([]);
@@ -106,6 +120,39 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     const dragPayload = React.useRef<{ candidateId: string; isBulk: boolean; processing?: boolean } | null>(null);
 
     const process = state.processes.find(p => p.id === processId);
+
+    useEffect(() => {
+        setWorkMode(getProcessWorkMode(processId, state.currentUser?.id));
+    }, [processId, state.currentUser?.id]);
+
+    useEffect(() => {
+        const active = workMode === 'table' && supportsHighDensityTableView(process);
+        actions.setProcessEmbeddedTableActive(active);
+        return () => actions.setProcessEmbeddedTableActive(false);
+    }, [workMode, process, actions]);
+
+    const enterTableMode = useCallback(async () => {
+        setWorkMode('table');
+        setProcessWorkMode(processId, state.currentUser?.id, 'table');
+        if (process && !process.bulkConfig?.highDensityTableEnabled) {
+            try {
+                await processesApi.update(processId, {
+                    bulkConfig: {
+                        ...process.bulkConfig,
+                        highDensityTableEnabled: true,
+                    },
+                });
+                await actions.reloadProcesses();
+            } catch (err) {
+                console.warn('No se pudo marcar el proceso como tabla alta densidad:', err);
+            }
+        }
+    }, [processId, process, state.currentUser?.id, actions]);
+
+    const exitTableMode = useCallback(() => {
+        setWorkMode('kanban');
+        setProcessWorkMode(processId, state.currentUser?.id, 'kanban');
+    }, [processId, state.currentUser?.id]);
 
     // Cargar conteo de attachments al montar el componente (incluyendo archivos de Google Drive)
     React.useEffect(() => {
@@ -163,7 +210,6 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     const validateDocumentRequirements = async (candidate: Candidate, targetStageId: string): Promise<{ valid: boolean; missingDocs: string[] }> => {
         const targetStage = process?.stages.find(s => s.id === targetStageId);
         if (!targetStage || !targetStage.requiredDocuments || targetStage.requiredDocuments.length === 0) {
-            console.log(`✅ No hay documentos requeridos para la etapa ${targetStage?.name || targetStageId}`);
             return { valid: true, missingDocs: [] };
         }
         
@@ -219,15 +265,11 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
         try {
             const { candidatesApi } = await import('../lib/api/candidates');
             candidateAttachments = await candidatesApi.getAttachments(candidate.id);
-            console.log(`📄 Cargados ${candidateAttachments.length} attachments para validación del candidato ${candidate.name}`);
         } catch (error) {
-            console.error('❌ Error cargando attachments para validación:', error);
-            // Si falla la carga, intentar usar los attachments del candidato en memoria
+            console.error('Error cargando attachments para validación:', error);
             candidateAttachments = candidate.attachments || [];
-            console.log(`⚠️ Usando attachments en memoria (${candidateAttachments.length} encontrados)`);
         }
         
-        // Agrupar attachments por categoría PRIMERO
         const attachmentsByCategory = candidateAttachments.reduce((acc, att) => {
             if (att.category) {
                 if (!acc[att.category]) acc[att.category] = [];
@@ -236,74 +278,17 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
             return acc;
         }, {} as Record<string, Attachment[]>);
         
-        // Debug: Log de attachments y categorías
-        console.log(`🔍 Validando documentos para candidato "${candidate.name}" (ID: ${candidate.id}):`);
-        console.log(`  - Attachments encontrados: ${candidateAttachments.length}`);
-        
-        // Mostrar categorías requeridas con sus nombres
-        const requiredCategoriesInfo = targetStage.requiredDocuments.map(catId => {
-            const category = currentProcess?.documentCategories?.find(c => c.id === catId);
-            return category ? `${category.name} (${catId})` : `[CATEGORÍA NO ENCONTRADA] (${catId})`;
-        });
-        console.log(`  - 📋 Categorías requeridas (${targetStage.requiredDocuments.length}):`, requiredCategoriesInfo.join(', '));
-        
-        // Mostrar todas las categorías disponibles en el proceso
-        console.log(`  - 📚 Categorías disponibles en el proceso:`, currentProcess?.documentCategories?.map(c => `${c.name} (${c.id})`).join(', ') || 'ninguna');
-        
-        // Mostrar todos los attachments con sus categorías
-        console.log(`  - 📄 Attachments del candidato:`);
-        candidateAttachments.forEach(att => {
-            const categoryName = att.category ? (currentProcess?.documentCategories?.find(c => c.id === att.category)?.name || `[CATEGORÍA NO ENCONTRADA] (${att.category})`) : 'sin categoría';
-            console.log(`     • ${att.name}: categoría = "${categoryName}"`);
-        });
-        
-        // Mostrar attachments agrupados por categoría
-        const categoriesWithAttachments = Object.keys(attachmentsByCategory).map(catId => {
-            const catName = currentProcess?.documentCategories?.find(c => c.id === catId)?.name || `[CATEGORÍA NO ENCONTRADA] (${catId})`;
-            return `${catName} (${attachmentsByCategory[catId].length} archivo(s))`;
-        });
-        console.log(`  - 📦 Attachments agrupados por categoría:`, categoriesWithAttachments.join(', ') || 'ninguna');
-        
         const missingDocs: string[] = [];
         targetStage.requiredDocuments.forEach(catId => {
             const categoryAttachments = attachmentsByCategory[catId] || [];
             const category = currentProcess?.documentCategories?.find(c => c.id === catId);
             const categoryName = category?.name || `[CATEGORÍA NO ENCONTRADA] (${catId})`;
-            
             if (categoryAttachments.length === 0) {
                 missingDocs.push(categoryName);
-                console.log(`  ❌ FALTA: ${categoryName} (ID: ${catId})`);
-                // Mostrar qué categorías SÍ tiene el candidato para ayudar a identificar el problema
-                const candidateCategoryIds = Object.keys(attachmentsByCategory);
-                if (candidateCategoryIds.length > 0) {
-                    const candidateCategoryNames = candidateCategoryIds.map(id => {
-                        const cat = currentProcess?.documentCategories?.find(c => c.id === id);
-                        return cat ? cat.name : `[CATEGORÍA NO ENCONTRADA] (${id})`;
-                    });
-                    console.log(`     ⚠️ El candidato tiene estas categorías: ${candidateCategoryNames.join(', ')}`);
-                }
-            } else {
-                console.log(`  ✅ ENCONTRADO: ${categoryName} (ID: ${catId}) - ${categoryAttachments.length} archivo(s)`);
-                categoryAttachments.forEach(att => {
-                    console.log(`     - ${att.name}`);
-                });
             }
         });
         
         const isValid = missingDocs.length === 0;
-        console.log(`📊 Resultado de validación: ${isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'} - ${missingDocs.length} documento(s) faltante(s)`);
-        
-        if (!isValid) {
-            console.log(`💡 SOLUCIÓN: Asigna las siguientes categorías a los documentos del candidato:`);
-            missingDocs.forEach(docName => {
-                const requiredCatId = targetStage.requiredDocuments.find(catId => {
-                    const cat = currentProcess?.documentCategories?.find(c => c.id === catId);
-                    return cat?.name === docName;
-                });
-                console.log(`   - "${docName}" (ID: ${requiredCatId})`);
-            });
-        }
-        
         return { valid: isValid, missingDocs };
     };
 
@@ -318,7 +303,6 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
         
         // Prevenir múltiples ejecuciones
         if (dragPayload.current.processing) {
-            console.log('⚠️ Ya se está procesando un movimiento, ignorando...');
             return;
         }
         
@@ -431,6 +415,16 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
     };
 
     if (!process) return <div className="p-8 text-center">Proceso no encontrado.</div>;
+
+    if (workMode === 'table' && supportsHighDensityTableView(process)) {
+        return (
+            <BulkProcessesView
+                embeddedProcessId={processId}
+                embeddedFromSpecificProcess
+                onExitEmbedded={exitTableMode}
+            />
+        );
+    }
     
     const statusLabels: Record<ProcessStatus, string> = {
         en_proceso: 'En Proceso',
@@ -569,6 +563,28 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                             <button onClick={() => setIsProcessEditorOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
                                 <Edit className="w-4 h-4 mr-1 md:mr-2"/> <span className="hidden md:inline">Editar proceso</span> <span className="md:hidden">Editar</span>
                             </button>
+                            {supportsHighDensityTableView(process) && (
+                                <button
+                                    type="button"
+                                    onClick={() => void enterTableMode()}
+                                    className="flex items-center px-3 md:px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+                                    title="Cambiar a tabla de alta densidad para gestionar muchos postulantes"
+                                >
+                                    <Table2 className="w-4 h-4 mr-1 md:mr-2" />
+                                    <span className="hidden md:inline">Modo tabla</span>
+                                    <span className="md:hidden">Tabla</span>
+                                </button>
+                            )}
+                            {!process.isBulkProcess && (
+                                <button
+                                    onClick={() => setIsImportOpen(true)}
+                                    className="flex items-center px-3 md:px-4 py-2 bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 whitespace-nowrap"
+                                >
+                                    <FileUp className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2" />
+                                    <span className="hidden md:inline">Importar candidatos</span>
+                                    <span className="md:hidden">Importar</span>
+                                </button>
+                            )}
                             <button onClick={() => setIsAddCandidateOpen(true)} className="flex items-center px-3 md:px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700 whitespace-nowrap">
                                 <Plus className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2" /> <span className="hidden md:inline">Añadir candidato</span> <span className="md:hidden">Añadir</span>
                             </button>
@@ -627,6 +643,16 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                 ))}
             </main>
             {isAddCandidateOpen && <AddCandidateModal process={process} onClose={() => setIsAddCandidateOpen(false)} />}
+            {isImportOpen && !process.isBulkProcess && (
+                <ProcessImportModal
+                    process={process}
+                    onClose={() => setIsImportOpen(false)}
+                    onImportComplete={() => {
+                        setIsImportOpen(false);
+                        void actions.reloadCandidates?.();
+                    }}
+                />
+            )}
             {isProcessEditorOpen && <ProcessEditorModal process={process} onClose={() => setIsProcessEditorOpen(false)} />}
             {isAttachmentsModalOpen && (
                 <ProcessAttachmentsModal 
@@ -678,15 +704,18 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
                             actions.showToast('No hay candidatos seleccionados con email', 'error', 3000);
                             return;
                         }
-                        const emailAddresses = selectedCandidatesForEmail.map(c => c.email).filter(Boolean);
-                        const toEmails = emailAddresses.join(';');
+                        const emailAddresses = selectedCandidatesForEmail.map(c => c.email!).filter(Boolean);
                         const personalizedBody = body
                             .replace(/\{\{nombre\}\}/g, selectedCandidatesForEmail[0].name || 'Candidato')
                             .replace(/\{\{email\}\}/g, selectedCandidatesForEmail[0].email || '')
                             .replace(/\{\{telefono\}\}/g, selectedCandidatesForEmail[0].phone || '');
-                        const mailtoLink = `mailto:${toEmails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(personalizedBody)}`;
-                        window.location.href = mailtoLink;
-                        actions.showToast(`Abriendo cliente de correo para ${emailAddresses.length} candidato(s)`, 'success', 3000);
+                        void openMailCompose({
+                            to: emailAddresses,
+                            subject,
+                            body: personalizedBody,
+                        }).then((result) => {
+                            actions.showToast(getMailComposeToastMessage(result), 'success', 6000);
+                        });
                     }}
                     onSendWhatsApp={(candidateIds, message) => {
                         const selectedCandidatesForWhatsApp = candidates.filter(c => candidateIds.includes(c.id) && c.phone);

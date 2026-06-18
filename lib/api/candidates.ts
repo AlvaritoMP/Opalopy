@@ -3,6 +3,118 @@ import { Candidate, CandidateHistory, PostIt, Comment, Attachment } from '../../
 import { processesApi } from './processes';
 import { convertirSalarioALetras } from '../numberToWords';
 import { APP_NAME } from '../appConfig';
+import { isMissingColumnError } from '../supabaseColumnErrors';
+import { buildUploadContactLockUpdate } from '../contactLock';
+
+const CANDIDATE_LIST_SELECT_CORE =
+    'id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at';
+
+const CANDIDATE_LIST_SELECT = `${CANDIDATE_LIST_SELECT_CORE}, application_count, first_application_at`;
+
+/** Variantes de select (de más completa a mínima) si faltan migraciones en Supabase */
+function getCandidateListSelectVariants(): string[] {
+    return [
+        `${CANDIDATE_LIST_SELECT}, bulk_column_values`,
+        CANDIDATE_LIST_SELECT,
+        `${CANDIDATE_LIST_SELECT_CORE}, bulk_column_values`,
+        CANDIDATE_LIST_SELECT_CORE,
+    ];
+}
+
+function mapBulkColumnValues(dbCandidate: { bulk_column_values?: unknown }): Record<string, unknown> | undefined {
+    const raw = dbCandidate.bulk_column_values;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    return raw as Record<string, unknown>;
+}
+
+async function fetchCandidatesWithSelectFallback(
+    buildQuery: (selectFields: string) => ReturnType<typeof supabase.from>
+): Promise<{ data: any[] | null; error: { message?: string; code?: string } | null }> {
+    let lastError: { message?: string; code?: string } | null = null;
+    for (const selectFields of getCandidateListSelectVariants()) {
+        const { data, error } = await buildQuery(selectFields);
+        if (!error) return { data: data || [], error: null };
+        lastError = error;
+        if (!isMissingColumnError(error)) break;
+    }
+    return { data: null, error: lastError };
+}
+
+/** IDs de procesos normales (no masivos). Los masivos cargan candidatos por bulkCandidatesApi. */
+async function fetchStandardProcessIds(): Promise<string[] | null> {
+    const { data, error } = await supabase
+        .from('processes')
+        .select('id')
+        .eq('app_name', APP_NAME)
+        .or('is_bulk_process.eq.false,is_bulk_process.is.null');
+
+    if (error) {
+        if (isMissingColumnError(error)) return null;
+        throw error;
+    }
+    return (data || []).map(row => row.id as string);
+}
+
+function applyStandardProcessFilter<T extends { in: (col: string, vals: string[]) => T }>(
+    query: T,
+    standardProcessIds: string[] | null
+): T | null {
+    if (standardProcessIds === null) return query;
+    if (standardProcessIds.length === 0) return null;
+    return query.in('process_id', standardProcessIds);
+}
+
+function mapListCandidate(dbCandidate: any, extras: Partial<Candidate> = {}): Candidate {
+    return {
+        id: dbCandidate.id,
+        name: dbCandidate.name,
+        email: dbCandidate.email,
+        phone: dbCandidate.phone,
+        phone2: dbCandidate.phone2,
+        processId: dbCandidate.process_id,
+        stageId: dbCandidate.stage_id,
+        description: dbCandidate.description,
+        history: [],
+        avatarUrl: dbCandidate.avatar_url,
+        attachments: [],
+        source: dbCandidate.source,
+        salaryExpectation: dbCandidate.salary_expectation,
+        agreedSalary: dbCandidate.agreed_salary,
+        agreedSalaryInWords: dbCandidate.agreed_salary_in_words,
+        age: dbCandidate.age,
+        dni: dbCandidate.dni,
+        linkedinUrl: dbCandidate.linkedin_url,
+        address: dbCandidate.address,
+        province: dbCandidate.province,
+        district: dbCandidate.district,
+        postIts: [],
+        comments: [],
+        archived: dbCandidate.archived || false,
+        archivedAt: dbCandidate.archived_at,
+        discarded: dbCandidate.discarded || false,
+        discardReason: dbCandidate.discard_reason || undefined,
+        discardedAt: dbCandidate.discarded_at || undefined,
+        hireDate: dbCandidate.hire_date,
+        googleDriveFolderId: dbCandidate.google_drive_folder_id,
+        googleDriveFolderName: dbCandidate.google_drive_folder_name,
+        visibleToClients: dbCandidate.visible_to_clients ?? false,
+        offerAcceptedDate: dbCandidate.offer_accepted_date,
+        applicationStartedDate: dbCandidate.application_started_date,
+        applicationCompletedDate: dbCandidate.application_completed_date,
+        criticalStageReviewedAt: dbCandidate.critical_stage_reviewed_at,
+        applicationCount: dbCandidate.application_count != null ? Number(dbCandidate.application_count) : undefined,
+        firstApplicationAt: dbCandidate.first_application_at || undefined,
+        registrationOrigin: dbCandidate.registration_origin || undefined,
+        createdBy: dbCandidate.created_by || undefined,
+        contactLockUserId: dbCandidate.contact_lock_user_id || undefined,
+        contactLockUserName: dbCandidate.contact_lock_user_name || undefined,
+        contactLockUntil: dbCandidate.contact_lock_until || undefined,
+        contactLockReason: dbCandidate.contact_lock_reason || undefined,
+        createdAt: dbCandidate.created_at || undefined,
+        bulkColumnValues: mapBulkColumnValues(dbCandidate),
+        ...extras,
+    };
+}
 
 // Convertir de DB a tipo de aplicación
 async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
@@ -119,12 +231,21 @@ async function dbToCandidate(dbCandidate: any): Promise<Candidate> {
         hireDate: dbCandidate.hire_date,
         googleDriveFolderId: dbCandidate.google_drive_folder_id,
         googleDriveFolderName: dbCandidate.google_drive_folder_name,
-        createdBy: dbCandidate.created_by,
         visibleToClients: dbCandidate.visible_to_clients ?? false,
         offerAcceptedDate: dbCandidate.offer_accepted_date,
         applicationStartedDate: dbCandidate.application_started_date,
         applicationCompletedDate: dbCandidate.application_completed_date,
         criticalStageReviewedAt: dbCandidate.critical_stage_reviewed_at,
+        applicationCount: dbCandidate.application_count != null ? Number(dbCandidate.application_count) : undefined,
+        firstApplicationAt: dbCandidate.first_application_at || undefined,
+        registrationOrigin: dbCandidate.registration_origin || undefined,
+        createdBy: dbCandidate.created_by || undefined,
+        contactLockUserId: dbCandidate.contact_lock_user_id || undefined,
+        contactLockUserName: dbCandidate.contact_lock_user_name || undefined,
+        contactLockUntil: dbCandidate.contact_lock_until || undefined,
+        contactLockReason: dbCandidate.contact_lock_reason || undefined,
+        createdAt: dbCandidate.created_at || undefined,
+        bulkColumnValues: mapBulkColumnValues(dbCandidate),
     };
 }
 
@@ -171,12 +292,12 @@ function candidateToDb(candidate: Partial<Candidate>): any {
     if (candidate.hireDate !== undefined) dbCandidate.hire_date = candidate.hireDate;
     if (candidate.googleDriveFolderId !== undefined) dbCandidate.google_drive_folder_id = candidate.googleDriveFolderId;
     if (candidate.googleDriveFolderName !== undefined) dbCandidate.google_drive_folder_name = candidate.googleDriveFolderName;
-    if (candidate.createdBy !== undefined) dbCandidate.created_by = candidate.createdBy || null;
     if (candidate.visibleToClients !== undefined) dbCandidate.visible_to_clients = candidate.visibleToClients;
     if (candidate.offerAcceptedDate !== undefined) dbCandidate.offer_accepted_date = candidate.offerAcceptedDate;
     if (candidate.applicationStartedDate !== undefined) dbCandidate.application_started_date = candidate.applicationStartedDate;
     if (candidate.applicationCompletedDate !== undefined) dbCandidate.application_completed_date = candidate.applicationCompletedDate;
     if (candidate.criticalStageReviewedAt !== undefined) dbCandidate.critical_stage_reviewed_at = candidate.criticalStageReviewedAt || null;
+    if (candidate.registrationOrigin !== undefined) dbCandidate.registration_origin = candidate.registrationOrigin;
     return dbCandidate;
 }
 
@@ -185,63 +306,29 @@ export const candidatesApi = {
     // OPTIMIZADO: Carga todas las relaciones en batch en lugar de N+1 queries
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments/comments se cargan lazy
     async getAll(includeArchived: boolean = false, includeRelations: boolean = true): Promise<Candidate[]> {
-        // Seleccionar solo campos básicos para reducir egress (solo de esta app)
-        let query = supabase
-            .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, created_by, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
-            .eq('app_name', APP_NAME) // Filtrar solo candidatos de esta app
-            .order('created_at', { ascending: false })
-            .limit(200); // Reducir límite para reducir egress
-        
-        if (!includeArchived) {
-            query = query.eq('archived', false);
-        }
+        const standardProcessIds = await fetchStandardProcessIds();
+        if (standardProcessIds !== null && standardProcessIds.length === 0) return [];
 
-        const { data, error } = await query;
+        const { data, error } = await fetchCandidatesWithSelectFallback((selectFields) => {
+            let query = supabase
+                .from('candidates')
+                .select(selectFields)
+                .eq('app_name', APP_NAME)
+                .order('created_at', { ascending: false });
+
+            query = applyStandardProcessFilter(query, standardProcessIds) ?? query;
+
+            if (!includeArchived) {
+                query = query.eq('archived', false);
+            }
+            return query.limit(2000);
+        });
         if (error) throw error;
         if (!data || data.length === 0) return [];
 
         // Si no se solicitan relaciones, retornar solo datos básicos (reduce egress significativamente)
         if (!includeRelations) {
-            return data.map(dbCandidate => ({
-                id: dbCandidate.id,
-                name: dbCandidate.name,
-                email: dbCandidate.email,
-                phone: dbCandidate.phone,
-                phone2: dbCandidate.phone2,
-                processId: dbCandidate.process_id,
-                stageId: dbCandidate.stage_id,
-                description: dbCandidate.description,
-                history: [],
-                avatarUrl: dbCandidate.avatar_url,
-                attachments: [],
-                source: dbCandidate.source,
-                salaryExpectation: dbCandidate.salary_expectation,
-                agreedSalary: dbCandidate.agreed_salary,
-                agreedSalaryInWords: dbCandidate.agreed_salary_in_words,
-                age: dbCandidate.age,
-                dni: dbCandidate.dni,
-                linkedinUrl: dbCandidate.linkedin_url,
-                address: dbCandidate.address,
-                province: dbCandidate.province,
-                district: dbCandidate.district,
-                postIts: [],
-                comments: [],
-                archived: dbCandidate.archived || false,
-                archivedAt: dbCandidate.archived_at,
-                discarded: dbCandidate.discarded || false,
-                discardReason: dbCandidate.discard_reason || undefined,
-                discardedAt: dbCandidate.discarded_at || undefined,
-                hireDate: dbCandidate.hire_date,
-                googleDriveFolderId: dbCandidate.google_drive_folder_id,
-                googleDriveFolderName: dbCandidate.google_drive_folder_name,
-                createdBy: dbCandidate.created_by,
-                visibleToClients: dbCandidate.visible_to_clients ?? false,
-                offerAcceptedDate: dbCandidate.offer_accepted_date,
-                applicationStartedDate: dbCandidate.application_started_date,
-                applicationCompletedDate: dbCandidate.application_completed_date,
-                criticalStageReviewedAt: dbCandidate.critical_stage_reviewed_at,
-            }));
+            return data.map(dbCandidate => mapListCandidate(dbCandidate));
         }
 
         // Obtener todos los IDs de candidatos
@@ -345,32 +432,12 @@ export const candidatesApi = {
                 })),
             }));
 
-            return {
-                id: dbCandidate.id,
-                name: dbCandidate.name,
-                email: dbCandidate.email,
-                phone: dbCandidate.phone,
-                phone2: dbCandidate.phone2,
-                processId: dbCandidate.process_id,
-                stageId: dbCandidate.stage_id,
-                description: dbCandidate.description,
+            return mapListCandidate(dbCandidate, {
                 history: history.map(h => ({
                     stageId: h.stage_id,
                     movedAt: h.moved_at,
                     movedBy: h.moved_by || 'System',
                 })),
-                avatarUrl: dbCandidate.avatar_url,
-                attachments: [], // Attachments se cargan lazy para reducir egress
-                source: dbCandidate.source,
-                salaryExpectation: dbCandidate.salary_expectation,
-                agreedSalary: dbCandidate.agreed_salary,
-                agreedSalaryInWords: dbCandidate.agreed_salary_in_words,
-                age: dbCandidate.age,
-                dni: dbCandidate.dni,
-                linkedinUrl: dbCandidate.linkedin_url,
-                address: dbCandidate.address,
-                province: dbCandidate.province,
-                district: dbCandidate.district,
                 postIts: postIts.map(p => ({
                     id: p.id,
                     text: p.text,
@@ -379,30 +446,122 @@ export const candidatesApi = {
                     createdAt: p.created_at,
                 })),
                 comments: commentsWithAttachments,
-                archived: dbCandidate.archived || false,
-                archivedAt: dbCandidate.archived_at,
-                discarded: dbCandidate.discarded || false,
-                discardReason: dbCandidate.discard_reason || undefined,
-                discardedAt: dbCandidate.discarded_at || undefined,
-                hireDate: dbCandidate.hire_date,
-                googleDriveFolderId: dbCandidate.google_drive_folder_id,
-                googleDriveFolderName: dbCandidate.google_drive_folder_name,
-                createdBy: dbCandidate.created_by,
-                visibleToClients: dbCandidate.visible_to_clients ?? false,
-                offerAcceptedDate: dbCandidate.offer_accepted_date,
-                applicationStartedDate: dbCandidate.application_started_date,
-                applicationCompletedDate: dbCandidate.application_completed_date,
-                criticalStageReviewedAt: dbCandidate.critical_stage_reviewed_at,
-            };
+            });
         });
     },
 
-    // Obtener candidatos por proceso
-    // OPTIMIZADO EGRESS: Usa getAll con filtro en memoria o consulta optimizada
+    /** Candidatos descartados y archivados (dashboard) — sin relaciones */
+    async getDiscardedArchived(): Promise<Candidate[]> {
+        const standardProcessIds = await fetchStandardProcessIds();
+        if (standardProcessIds !== null && standardProcessIds.length === 0) return [];
+
+        const { data, error } = await fetchCandidatesWithSelectFallback((selectFields) => {
+            let query = supabase
+                .from('candidates')
+                .select(selectFields)
+                .eq('app_name', APP_NAME)
+                .eq('discarded', true)
+                .eq('archived', true)
+                .order('created_at', { ascending: false });
+
+            query = applyStandardProcessFilter(query, standardProcessIds) ?? query;
+            return query.limit(500);
+        });
+
+        if (error) throw error;
+        if (!data?.length) return [];
+
+        return data.map(dbCandidate => mapListCandidate(dbCandidate, { discarded: true }));
+    },
+
+    // Obtener candidatos por proceso (consulta directa, no depende del límite global de getAll)
     async getByProcess(processId: string, includeArchived: boolean = false, includeRelations: boolean = false): Promise<Candidate[]> {
-        // Usar getAll optimizado y filtrar en memoria (más eficiente para egress)
-        const allCandidates = await this.getAll(includeArchived, includeRelations);
-        return allCandidates.filter(c => c.processId === processId);
+        const { data, error } = await fetchCandidatesWithSelectFallback((selectFields) => {
+            let query = supabase
+                .from('candidates')
+                .select(selectFields)
+                .eq('app_name', APP_NAME)
+                .eq('process_id', processId)
+                .order('created_at', { ascending: false });
+            if (!includeArchived) {
+                query = query.eq('archived', false);
+            }
+            return query;
+        });
+        if (error) throw error;
+        if (!data?.length) return [];
+
+        if (!includeRelations) {
+            return data.map(dbCandidate => mapListCandidate(dbCandidate));
+        }
+
+        const candidateIds = data.map(c => c.id);
+        const [historyResult, postItsResult, commentsResult] = await Promise.all([
+            supabase
+                .from('candidate_history')
+                .select('id, candidate_id, stage_id, moved_at, moved_by')
+                .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
+                .order('moved_at', { ascending: true }),
+            supabase
+                .from('post_its')
+                .select('id, candidate_id, text, color, created_by, created_at')
+                .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
+                .order('created_at', { ascending: false }),
+            supabase
+                .from('comments')
+                .select('id, candidate_id, text, user_id, created_at')
+                .in('candidate_id', candidateIds)
+                .eq('app_name', APP_NAME)
+                .order('created_at', { ascending: false }),
+        ]);
+
+        const historyByCandidateId = new Map<string, any[]>();
+        const postItsByCandidateId = new Map<string, any[]>();
+        const commentsByCandidateId = new Map<string, any[]>();
+
+        (historyResult.data || []).forEach(history => {
+            if (!historyByCandidateId.has(history.candidate_id)) {
+                historyByCandidateId.set(history.candidate_id, []);
+            }
+            historyByCandidateId.get(history.candidate_id)!.push(history);
+        });
+        (postItsResult.data || []).forEach(postIt => {
+            if (!postItsByCandidateId.has(postIt.candidate_id)) {
+                postItsByCandidateId.set(postIt.candidate_id, []);
+            }
+            postItsByCandidateId.get(postIt.candidate_id)!.push(postIt);
+        });
+        (commentsResult.data || []).forEach(comment => {
+            if (!commentsByCandidateId.has(comment.candidate_id)) {
+                commentsByCandidateId.set(comment.candidate_id, []);
+            }
+            commentsByCandidateId.get(comment.candidate_id)!.push(comment);
+        });
+
+        return data.map(dbCandidate => mapListCandidate(dbCandidate, {
+            history: (historyByCandidateId.get(dbCandidate.id) || []).map(h => ({
+                id: h.id,
+                stageId: h.stage_id,
+                movedAt: h.moved_at,
+                movedBy: h.moved_by,
+            })),
+            postIts: (postItsByCandidateId.get(dbCandidate.id) || []).map(p => ({
+                id: p.id,
+                text: p.text,
+                color: p.color,
+                createdBy: p.created_by,
+                createdAt: p.created_at,
+            })),
+            comments: (commentsByCandidateId.get(dbCandidate.id) || []).map(c => ({
+                id: c.id,
+                text: c.text,
+                userId: c.user_id,
+                createdAt: c.created_at,
+                attachments: [],
+            })),
+        }));
     },
 
     // Obtener solo el conteo de attachments de un candidato (sin cargar los datos)
@@ -445,7 +604,7 @@ export const candidatesApi = {
     async getById(id: string): Promise<Candidate | null> {
         const { data, error } = await supabase
             .from('candidates')
-            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, created_by, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
+            .select('id, name, email, phone, phone2, process_id, stage_id, description, avatar_url, source, salary_expectation, agreed_salary, agreed_salary_in_words, age, dni, linkedin_url, address, province, district, archived, archived_at, discarded, discard_reason, discarded_at, hire_date, google_drive_folder_id, google_drive_folder_name, visible_to_clients, offer_accepted_date, application_started_date, application_completed_date, critical_stage_reviewed_at, created_at')
             .eq('id', id)
             .eq('app_name', APP_NAME) // Filtrar solo candidatos de esta app
             .single();
@@ -459,9 +618,23 @@ export const candidatesApi = {
     },
 
     // Crear candidato
-    async create(candidateData: Omit<Candidate, 'id' | 'history'>, createdBy?: string): Promise<Candidate> {
+    async create(
+        candidateData: Omit<Candidate, 'id' | 'history'>,
+        createdBy?: string,
+        options?: { createdByName?: string }
+    ): Promise<Candidate> {
         const dbData = candidateToDb(candidateData);
-        if (!dbData.created_by && createdBy) dbData.created_by = createdBy;
+        if (createdBy) dbData.created_by = createdBy;
+        if (
+            createdBy &&
+            (candidateData.registrationOrigin === 'manual' ||
+                candidateData.registrationOrigin === 'masivo')
+        ) {
+            Object.assign(
+                dbData,
+                buildUploadContactLockUpdate(createdBy, options?.createdByName)
+            );
+        }
         dbData.app_name = APP_NAME; // Asegurar que siempre se asigne el app_name
         // Set application_started_date if not provided
         if (!dbData.application_started_date) {
@@ -485,7 +658,19 @@ export const candidatesApi = {
             
             if (isColumnError) {
                 // Separar campos opcionales y reintentar
-                const { agreed_salary_in_words, province, district, critical_stage_reviewed_at, created_by, ...standardCreateFields } = dbData;
+                const {
+                    agreed_salary_in_words,
+                    province,
+                    district,
+                    critical_stage_reviewed_at,
+                    registration_origin,
+                    contact_lock_user_id,
+                    contact_lock_user_name,
+                    contact_lock_until,
+                    contact_lock_reason,
+                    created_by,
+                    ...standardCreateFields
+                } = dbData;
                 standardCreateFields.app_name = APP_NAME; // Asegurar app_name en el reintento
                 
                 const { data: data2, error: error2 } = await supabase
@@ -502,7 +687,12 @@ export const candidatesApi = {
                 if (province !== undefined) optionalFields.province = province;
                 if (district !== undefined) optionalFields.district = district;
                 if (critical_stage_reviewed_at !== undefined) optionalFields.critical_stage_reviewed_at = critical_stage_reviewed_at;
+                if (registration_origin !== undefined) optionalFields.registration_origin = registration_origin;
                 if (created_by !== undefined) optionalFields.created_by = created_by;
+                if (contact_lock_user_id !== undefined) optionalFields.contact_lock_user_id = contact_lock_user_id;
+                if (contact_lock_user_name !== undefined) optionalFields.contact_lock_user_name = contact_lock_user_name;
+                if (contact_lock_until !== undefined) optionalFields.contact_lock_until = contact_lock_until;
+                if (contact_lock_reason !== undefined) optionalFields.contact_lock_reason = contact_lock_reason;
                 
                 if (Object.keys(optionalFields).length > 0 && data2) {
                     try {
@@ -608,10 +798,10 @@ export const candidatesApi = {
 
         const dbData = candidateToDb(candidateData);
         
-        // Separar campos que pueden no existir en el esquema (province, district, critical_stage_reviewed_at, agreed_salary_in_words, created_by)
+        // Separar campos que pueden no existir en el esquema (province, district, critical_stage_reviewed_at, agreed_salary_in_words)
         // Si las columnas no existen en la BD, se omiten de la actualización
         // IMPORTANTE: discarded, discard_reason, discarded_at deben estar en standardFields para que se guarden
-        const { province, district, critical_stage_reviewed_at, agreed_salary_in_words, created_by, ...standardFields } = dbData;
+        const { province, district, critical_stage_reviewed_at, agreed_salary_in_words, ...standardFields } = dbData;
         
         // No permitir cambiar app_name
         delete standardFields.app_name;
@@ -678,33 +868,6 @@ export const candidatesApi = {
             } catch (err: any) {
                 // Ignorar errores de columna faltante
                 console.warn('No se pudo actualizar critical_stage_reviewed_at');
-            }
-        }
-
-        // Manejar created_by por separado para que la app siga funcionando antes de ejecutar la migración
-        if (created_by !== undefined) {
-            try {
-                const { error: createdByError } = await supabase
-                    .from('candidates')
-                    .update({ created_by })
-                    .eq('id', id)
-                    .eq('app_name', APP_NAME);
-
-                if (createdByError) {
-                    const errorMsg = createdByError.message || '';
-                    const isColumnError = errorMsg.includes('schema cache') ||
-                                         errorMsg.includes("Could not find") ||
-                                         errorMsg.includes("column") ||
-                                         createdByError.code === '42703';
-
-                    if (isColumnError) {
-                        console.warn('⚠️ La columna created_by no existe en candidates. Ejecuta MIGRATION_ADD_CANDIDATE_CREATED_BY.sql para habilitar el campo "Creado por".');
-                    } else {
-                        console.warn('Error actualizando created_by:', createdByError);
-                    }
-                }
-            } catch (err: any) {
-                console.warn('No se pudo actualizar created_by:', err?.message || err);
             }
         }
         

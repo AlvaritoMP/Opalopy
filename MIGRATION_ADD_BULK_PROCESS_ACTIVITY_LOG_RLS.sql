@@ -1,0 +1,2 @@
+-- ⚠️ DEPRECADO — Ejecutar RLS_OPALO_ATS_DEFINITIVO.sql (ver RLS_POLITICA.md)
+-- Este archivo se mantiene solo como referencia histórica.

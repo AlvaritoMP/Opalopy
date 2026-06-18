@@ -4,6 +4,9 @@ import { Process, Stage, Attachment, ProcessStatus, DocumentCategory, Client } f
 import { X, Plus, Trash2, GripVertical, Paperclip, Upload, FileText, CheckSquare, Folder, Cloud, Eye, Info } from 'lucide-react';
 import { googleDriveService, GoogleDriveFolder } from '../lib/googleDrive';
 import { clientsApi } from '../lib/api';
+import { processesApi } from '../lib/api/processes';
+import { StageColorPicker } from './StageColorPicker';
+import { suggestStageColor } from '../lib/stageColors';
 
 interface ProcessEditorModalProps {
     process: Process | null;
@@ -79,6 +82,38 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         setSelectedClientId(process?.clientId);
     }, [process?.clientId]);
 
+    useEffect(() => {
+        if (!process?.id || process.id.startsWith('temp-')) return;
+
+        let cancelled = false;
+        processesApi.getById(process.id).then(fresh => {
+            if (cancelled || !fresh) return;
+            setTitle(fresh.title);
+            setDescription(fresh.description);
+            setServiceOrderCode(fresh.serviceOrderCode || '');
+            setSalaryRange(fresh.salaryRange || '');
+            setExperienceLevel(fresh.experienceLevel || '');
+            setSeniority(fresh.seniority || '');
+            setStartDate(fresh.startDate || '');
+            setEndDate(fresh.endDate || '');
+            setPublishedDate(fresh.publishedDate || '');
+            setNeedIdentifiedDate(fresh.needIdentifiedDate || '');
+            setFlyerUrl(fresh.flyerUrl || '');
+            setFlyerPosition(fresh.flyerPosition || 'center center');
+            setStatus(fresh.status);
+            setVacancies(fresh.vacancies);
+            setStages(fresh.stages?.length ? fresh.stages : [{ id: `new-${Date.now()}`, name: 'Applied' }]);
+            setDocumentCategories(fresh.documentCategories || []);
+            setGoogleDriveFolderId(fresh.googleDriveFolderId);
+            setGoogleDriveFolderName(fresh.googleDriveFolderName);
+            setSelectedClientId(fresh.clientId);
+        }).catch(err => {
+            console.warn('No se pudo recargar el proceso desde la BD:', err);
+        });
+
+        return () => { cancelled = true; };
+    }, [process?.id]);
+
     const loadClients = async () => {
         setIsLoadingClients(true);
         try {
@@ -153,6 +188,14 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                 : stage
         ));
     };
+
+    const handleStageColorChange = (stageId: string, color: Stage['color']) => {
+        setStages(stages.map(stage =>
+            stage.id === stageId
+                ? { ...stage, color: color || undefined }
+                : stage
+        ));
+    };
     
     const addDocumentCategory = () => {
         setDocumentCategories([...documentCategories, {
@@ -178,7 +221,7 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
         })));
     };
 
-    const addStage = () => setStages([...stages, { id: `new-${Date.now()}`, name: '' }]);
+    const addStage = () => setStages([...stages, { id: `new-${Date.now()}`, name: '', color: suggestStageColor(stages.length) }]);
     const removeStage = (id: string) => {
         if (stages.length > 1) setStages(stages.filter(stage => stage.id !== id));
         else alert("A process must have at least one stage.");
@@ -878,6 +921,10 @@ export const ProcessEditorModal: React.FC<ProcessEditorModalProps> = ({ process,
                                             </button>
                                         </div>
                                         <div className="ml-7 space-y-3">
+                                            <StageColorPicker
+                                                value={stage.color}
+                                                onChange={(color) => handleStageColorChange(stage.id, color)}
+                                            />
                                             <label className="flex items-center text-sm text-gray-700">
                                                 <input
                                                     type="checkbox"

@@ -143,22 +143,4 @@ export function convertirSalarioALetras(salaryString: string | undefined | null)
     return resultado;
 }
 
-/**
- * Pruebas de la función (para desarrollo)
- */
-export function probarConversiones() {
-    const casos = [
-        'S/2,500',
-        '2500',
-        'S/ 3.500',
-        '$1000',
-        '500.50',
-        '1.50',
-        '0.50'
-    ];
-    
-    casos.forEach(caso => {
-        console.log(`${caso} -> ${convertirSalarioALetras(caso)}`);
-    });
-}
 

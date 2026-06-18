@@ -26,6 +26,7 @@ export const initialSettings: AppSettings = {
     poweredByLogoUrl: undefined,
     customLabels: {},
     candidateSources: ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'], // Valores por defecto en español
+    interviewLocations: [],
     ...getLocationData(), // Carga provincias y distritos desde locationData.ts
 };
 

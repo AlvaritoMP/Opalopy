@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppState } from '../App';
 import { Plus, Trash2, Link as LinkIcon, ExternalLink, Edit2 } from 'lucide-react';
 import { FormEditorModal } from './FormEditorModal'; // This is now the FormIntegrationModal
-import { FormIntegration } from '../types';
-import { formIntegrationsApi } from '../lib/api/formIntegrations';
+import { FormIntegration, Process } from '../types';
+import { processesApi } from '../lib/api/processes';
 
 const PlatformLogo: React.FC<{platform: string}> = ({platform}) => {
     const baseClasses = "w-8 h-8 mr-4 rounded-md flex items-center justify-center text-white font-bold";
@@ -29,37 +29,31 @@ export const Forms: React.FC = () => {
     const { state, actions, getLabel } = useAppState();
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingIntegration, setEditingIntegration] = useState<FormIntegration | null>(null);
-    const [integrations, setIntegrations] = useState<FormIntegration[]>(state.formIntegrations);
-    const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
-    const [integrationsError, setIntegrationsError] = useState<string | null>(null);
-
-    const loadIntegrations = async () => {
-        setIsLoadingIntegrations(true);
-        setIntegrationsError(null);
-        try {
-            const freshIntegrations = await formIntegrationsApi.getAll();
-            setIntegrations(freshIntegrations);
-        } catch (error: any) {
-            console.error('Error cargando integraciones de formularios:', error);
-            setIntegrationsError(error?.message || 'No se pudieron cargar las integraciones.');
-            setIntegrations(state.formIntegrations);
-        } finally {
-            setIsLoadingIntegrations(false);
-        }
-    };
+    const [bulkProcesses, setBulkProcesses] = useState<Process[]>([]);
 
     useEffect(() => {
-        setIntegrations(state.formIntegrations);
-    }, [state.formIntegrations]);
+        const loadBulkProcesses = async () => {
+            try {
+                const processes = await processesApi.getAllBulkProcesses();
+                let filteredProcesses = processes;
+                const currentUser = state.currentUser;
+                if (currentUser && currentUser.allowedClientIds !== undefined && currentUser.allowedClientIds !== null) {
+                    const allowedClientIdsSet = new Set(currentUser.allowedClientIds);
+                    filteredProcesses = processes.filter(p => p.clientId && allowedClientIdsSet.has(p.clientId));
+                }
+                setBulkProcesses(filteredProcesses);
+            } catch (error) {
+                console.error('Error loading bulk processes for forms:', error);
+            }
+        };
+        loadBulkProcesses();
+    }, [state.currentUser]);
 
-    useEffect(() => {
-        loadIntegrations();
-    }, []);
+    const allProcesses = [...state.processes, ...bulkProcesses];
     
-    const handleDelete = async (formId: string) => {
+    const handleDelete = (formId: string) => {
         if (window.confirm('¿Seguro que quieres eliminar esta integración? Esto no eliminará el formulario en la plataforma original.')) {
-            await actions.deleteFormIntegration(formId);
-            setIntegrations(prev => prev.filter(integration => integration.id !== formId));
+            actions.deleteFormIntegration(formId);
         }
     };
 
@@ -71,7 +65,6 @@ export const Forms: React.FC = () => {
     const handleCloseEditor = () => {
         setIsEditorOpen(false);
         setEditingIntegration(null);
-        loadIntegrations();
     };
 
     return (
@@ -85,24 +78,7 @@ export const Forms: React.FC = () => {
                     <Plus className="w-5 h-5 mr-2" /> Nueva integración
                 </button>
             </div>
-            {isLoadingIntegrations && integrations.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-xl border border-dashed">
-                    <h3 className="text-lg font-medium text-gray-900">Cargando integraciones...</h3>
-                    <p className="mt-1 text-sm text-gray-500">Estamos consultando las integraciones configuradas.</p>
-                </div>
-            ) : integrationsError && integrations.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-xl border border-dashed border-red-200">
-                    <h3 className="text-lg font-medium text-red-700">No se pudieron cargar las integraciones</h3>
-                    <p className="mt-1 text-sm text-gray-500">{integrationsError}</p>
-                    <button
-                        onClick={loadIntegrations}
-                        type="button"
-                        className="mt-4 inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700"
-                    >
-                        Reintentar
-                    </button>
-                </div>
-            ) : integrations.length === 0 ? (
+            {state.formIntegrations.length === 0 ? (
                  <div className="text-center py-12 bg-white rounded-xl border border-dashed">
                     <h3 className="text-lg font-medium text-gray-900">No se encontraron integraciones</h3>
                     <p className="mt-1 text-sm text-gray-500">Conecta un formulario externo para empezar a recibir postulaciones.</p>
@@ -120,8 +96,8 @@ export const Forms: React.FC = () => {
             ) : (
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <ul role="list" className="divide-y divide-gray-200">
-                        {integrations.map((integration) => {
-                             const process = state.processes.find(p => p.id === integration.processId);
+                        {state.formIntegrations.map((integration) => {
+                             const process = allProcesses.find(p => p.id === integration.processId);
                              return (
                                 <li key={integration.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
                                     <div className="flex items-center flex-1">
@@ -172,6 +148,7 @@ export const Forms: React.FC = () => {
                 <FormEditorModal 
                     integration={editingIntegration} 
                     onClose={handleCloseEditor} 
+                    availableProcesses={allProcesses}
                 />
             )}
         </div>

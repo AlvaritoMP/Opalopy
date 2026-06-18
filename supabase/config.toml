@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "Opalopy"
+project_id = "Opaloats"
 
 [api]
 enabled = true
@@ -354,6 +354,14 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
+# Tally envía POST sin token JWT; debe ser público.
+[functions.tally-webhook]
+verify_jwt = false
+
+# Reenvío a OpsFlow: requiere sesión ATS (JWT del usuario logueado).
+[functions.deliver-worker-handoff]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.
@@ -367,9 +375,6 @@ deno_version = 2
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
-
-[functions.tally-webhook]
-verify_jwt = false
 
 [analytics]
 enabled = true

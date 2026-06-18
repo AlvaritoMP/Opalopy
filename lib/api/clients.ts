@@ -2,6 +2,25 @@ import { supabase } from '../supabase';
 import { Client } from '../../types';
 import { APP_NAME } from '../appConfig';
 
+function throwClientApiError(op: string, error: any): never {
+    const code = error?.code ?? '';
+    const msg = error?.message ?? String(error);
+    const details = error?.details ?? '';
+    const hint = error?.hint ?? '';
+    const full = [msg, code && `code=${code}`, details && `details=${details}`, hint && `hint=${hint}`]
+        .filter(Boolean)
+        .join(' | ');
+    console.error(`[clientsApi.${op}]`, { code, message: msg, details, hint, error });
+    const err = new Error(
+        `Clientes (${op}): ${full}\n` +
+            (code === '42501' || /permission denied/i.test(msg)
+                ? 'Falta GRANT o política RLS en public.clients. Ejecute MIGRATION_FIX_CLIENTS_ANON_GRANTS.sql en Supabase.'
+                : '')
+    );
+    (err as any).code = code;
+    throw err;
+}
+
 // Convertir de DB a tipo de aplicación
 function dbToClient(dbClient: any): Client {
     return {
@@ -30,7 +49,7 @@ export const clientsApi = {
             .eq('app_name', APP_NAME)
             .order('razon_social', { ascending: true });
         
-        if (error) throw error;
+        if (error) throwClientApiError('getAll', error);
         return (data || []).map(dbToClient);
     },
 
@@ -45,7 +64,7 @@ export const clientsApi = {
         
         if (error) {
             if (error.code === 'PGRST116') return null; // No encontrado
-            throw error;
+            throwClientApiError('getById', error);
         }
         return data ? dbToClient(data) : null;
     },
@@ -61,7 +80,7 @@ export const clientsApi = {
             .select()
             .single();
         
-        if (error) throw error;
+        if (error) throwClientApiError('create', error);
         return dbToClient(data);
     },
 
@@ -77,7 +96,7 @@ export const clientsApi = {
             .select()
             .single();
         
-        if (error) throw error;
+        if (error) throwClientApiError('update', error);
         return dbToClient(data);
     },
 
@@ -89,6 +108,6 @@ export const clientsApi = {
             .eq('id', id)
             .eq('app_name', APP_NAME);
         
-        if (error) throw error;
+        if (error) throwClientApiError('delete', error);
     },
 };

@@ -5,6 +5,24 @@ import { getSettings, saveSettings as saveSettingsToStorage } from './lib/settin
 import { usersApi, processesApi, candidatesApi, postItsApi, commentsApi, interviewsApi, settingsApi, formIntegrationsApi, setCurrentUser } from './lib/api/index';
 import { isCorsError, getErrorMessage, isSupabaseConfigured } from './lib/supabase';
 import { googleDriveService } from './lib/googleDrive';
+import { debugLog } from './lib/debugLog';
+import {
+    getStoredUserId,
+    establishSession,
+    clearStoredSession,
+    ensureSessionActivityBaseline,
+    isSessionExpired,
+    expireSessionDueToInactivity,
+    touchSessionActivity,
+    consumeSessionExpiredNotice,
+} from './lib/sessionActivity';
+import { getBulkSelectedProcessId, setBulkSelectedProcessId } from './lib/bulkTableColumns';
+import {
+    loadDashboardFilters,
+    saveDashboardFilters,
+    type DashboardFiltersState,
+} from './lib/dashboardFilters';
+import { fetchDashboardData, type DashboardDataCache } from './lib/dashboardDataLoader';
 import { Dashboard } from './components/Dashboard';
 import { ProcessList } from './components/ProcessList';
 import { ProcessView } from './components/ProcessView';
@@ -16,11 +34,12 @@ import { Forms } from './components/Forms';
 import { CalendarView } from './components/CalendarView';
 import { BulkImportView } from './components/BulkImportView';
 import { BulkProcessesView } from './components/BulkProcessesView';
+import { OpsFlowHandoffHistory } from './components/OpsFlowHandoffHistory';
 import { Spinner } from './components/Spinner';
 import { ArchivedCandidates } from './components/ArchivedCandidates';
 import { Letters } from './components/Letters';
 import { ToastContainer } from './components/Toast';
-import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, FileUp, LogOut, X, Archive, RefreshCw, Menu, Grid3x3 } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, Settings as SettingsIcon, Users as UsersIcon, ChevronsLeft, ChevronsRight, BarChart2, Calendar, LogOut, X, Archive, RefreshCw, Menu, Grid3x3, Send } from 'lucide-react';
 import { CandidateComparator } from './components/CandidateComparator';
 
 
@@ -36,8 +55,15 @@ interface AppState {
     currentUser: User | null;
     view: { type: string; payload?: any };
     lastViewedProcessId: string | null; // ID del último proceso visto
+    /** Proceso masivo abierto; '' = lista de procesos masivos */
+    lastViewedBulkProcessId: string;
+    dashboardFilters: DashboardFiltersState;
+    dashboardCache: DashboardDataCache | null;
+    dashboardCacheLoading: boolean;
     loading: boolean;
     toasts: Array<{ id: string; message: string; type: 'success' | 'error' | 'loading' | 'info'; duration?: number }>;
+    /** Proceso específico abierto en modo tabla embebida (layout pantalla completa) */
+    processEmbeddedTableActive: boolean;
 }
 
 interface AppActions {
@@ -48,7 +74,7 @@ interface AppActions {
     deleteProcess: (processId: string) => Promise<void>;
     reloadProcesses: () => Promise<void>;
     reloadCandidates: () => Promise<void>;
-    addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>) => Promise<Candidate>;
+    addCandidate: (candidateData: Omit<Candidate, 'id' | 'history'>, options?: { skipGoogleDrive?: boolean; silent?: boolean }) => Promise<Candidate>;
     updateCandidate: (candidateData: Candidate, movedBy?: string) => Promise<void>;
     deleteCandidate: (candidateId: string) => Promise<void>;
     moveCandidateToProcess: (candidateId: string, targetProcessId: string) => Promise<void>;
@@ -60,9 +86,10 @@ interface AppActions {
     addFormIntegration: (integrationData: Omit<FormIntegration, 'id' | 'webhookUrl'>) => Promise<FormIntegration>;
     updateFormIntegration: (integrationId: string, integrationData: Partial<FormIntegration>) => Promise<void>;
     deleteFormIntegration: (integrationId: string) => Promise<void>;
-    addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<void>;
+    addInterviewEvent: (eventData: Omit<InterviewEvent, 'id'>) => Promise<InterviewEvent>;
     updateInterviewEvent: (eventData: InterviewEvent) => Promise<void>;
     deleteInterviewEvent: (eventId: string) => Promise<void>;
+    refreshInterviewEvents: () => Promise<void>;
     addPostIt: (candidateId: string, postIt: Omit<PostIt, 'id' | 'createdAt'>) => Promise<void>;
     deletePostIt: (candidateId: string, postItId: string) => Promise<void>;
     addComment: (candidateId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => Promise<void>;
@@ -72,8 +99,12 @@ interface AppActions {
     discardCandidate: (candidateId: string, reason: string) => Promise<void>;
     loadArchivedCandidates: () => Promise<void>;
     setView: (type: string, payload?: any) => void;
+    setLastViewedBulkProcessId: (processId: string) => void;
+    setDashboardFilters: (patch: Partial<DashboardFiltersState>) => void;
+    loadDashboardCache: (force?: boolean) => Promise<void>;
     showToast: (message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => string;
     hideToast: (id: string) => void;
+    setProcessEmbeddedTableActive: (active: boolean) => void;
 }
 
 interface AppContextType {
@@ -150,8 +181,15 @@ const LoginPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [sessionExpiredInfo, setSessionExpiredInfo] = useState(false);
     const [isLoggingIn, setIsLoggingIn] = useState(false);
     const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+
+    useEffect(() => {
+        if (consumeSessionExpiredNotice()) {
+            setSessionExpiredInfo(true);
+        }
+    }, []);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -173,6 +211,11 @@ const LoginPage: React.FC = () => {
                         <h1 className="text-3xl font-bold text-gray-900">{state.settings?.appName || 'Opalopy'}</h1>
                         <p className="mt-2 text-sm text-gray-600">Please sign in to your account</p>
                     </div>
+                    {sessionExpiredInfo && (
+                        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-center">
+                            Tu sesión se cerró por inactividad (más de 1 hora). Vuelve a iniciar sesión.
+                        </p>
+                    )}
                     <form className="space-y-6" onSubmit={handleLogin}>
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
@@ -231,19 +274,15 @@ const LoginPage: React.FC = () => {
 const getVisibleSections = (user: User | null): Section[] => {
     if (!user) return [];
     if (user.visibleSections && user.visibleSections.length > 0) {
-        console.log('🔍 Usuario con secciones personalizadas:', user.visibleSections);
         return user.visibleSections;
     }
-    // Secciones por defecto según rol
     const defaultSections: Record<UserRole, Section[]> = {
-        admin: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import', 'bulk-processes', 'users', 'settings'],
-        recruiter: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-import', 'bulk-processes'],
+        admin: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-processes', 'opsflow-handoffs', 'users', 'settings'],
+        recruiter: ['dashboard', 'processes', 'archived', 'candidates', 'forms', 'letters', 'calendar', 'reports', 'compare', 'bulk-processes', 'opsflow-handoffs'],
         client: ['dashboard', 'processes', 'candidates', 'calendar', 'reports', 'compare'],
         viewer: ['dashboard', 'processes', 'candidates', 'calendar', 'reports']
     };
-    const sections = defaultSections[user.role] || [];
-    console.log('🔍 Usuario:', user.role, 'Secciones visibles:', sections);
-    return sections;
+    return defaultSections[user.role] || [];
 };
 
 const NavItem: React.FC<{
@@ -279,19 +318,7 @@ const Sidebar: React.FC = () => {
     if (!state.currentUser) return null;
     
     const visibleSections = getVisibleSections(state.currentUser);
-    const canSeeSection = (section: Section) => {
-        const canSee = visibleSections.includes(section);
-        if (section === 'bulk-processes') {
-            console.log('🔍 Verificando bulk-processes:', {
-                canSee,
-                visibleSections,
-                userRole: state.currentUser.role,
-                hasCustomSections: !!state.currentUser.visibleSections,
-                customSections: state.currentUser.visibleSections
-            });
-        }
-        return canSee;
-    };
+    const canSeeSection = (section: Section) => visibleSections.includes(section);
 
     return (
         <>
@@ -347,12 +374,12 @@ const Sidebar: React.FC = () => {
                 {canSeeSection('bulk-processes') && <NavItem icon={Grid3x3} label={getLabel('sidebar_bulk_processes', 'Procesos Masivos')} view="bulk-processes" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('archived') && <NavItem icon={Archive} label={getLabel('sidebar_archived', 'Archivados')} view="archived" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('candidates') && <NavItem icon={UsersIcon} label={getLabel('menu_candidates', 'Candidatos')} view="candidates" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
+                {canSeeSection('opsflow-handoffs') && <NavItem icon={Send} label={getLabel('sidebar_opsflow_handoffs', 'Envíos OpsFlow')} view="opsflow-handoffs" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('forms') && <NavItem icon={FileText} label={getLabel('sidebar_forms', 'Formularios')} view="forms" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('letters') && <NavItem icon={FileText} label={getLabel('sidebar_letters', 'Cartas')} view="letters" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('calendar') && <NavItem icon={Calendar} label={getLabel('sidebar_calendar', 'Calendario')} view="calendar" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('reports') && <NavItem icon={BarChart2} label={getLabel('sidebar_reports', 'Reportes')} view="reports" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
                 {canSeeSection('compare') && <NavItem icon={BarChart2} label={getLabel('sidebar_compare', 'Comparador')} view="compare" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
-                {canSeeSection('bulk-import') && <NavItem icon={FileUp} label={getLabel('sidebar_bulk_import', 'Importación Masiva')} view="bulk-import" currentView={state.view.type} setView={actions.setView} isCollapsed={isCollapsed} />}
             </nav>
             <div className="p-2 border-t space-y-2">
                  <div className="p-2">
@@ -449,8 +476,13 @@ const App: React.FC = () => {
         currentUser: null,
         view: { type: 'dashboard' },
         lastViewedProcessId: null,
+        lastViewedBulkProcessId: '',
+        dashboardFilters: loadDashboardFilters(),
+        dashboardCache: null,
+        dashboardCacheLoading: false,
         loading: true,
         toasts: [],
+        processEmbeddedTableActive: false,
     });
 
     // Referencia para evitar mostrar el mensaje de CORS repetidamente
@@ -475,7 +507,7 @@ const App: React.FC = () => {
                     return;
                 }
                 
-                console.log('Loading data from Supabase...');
+                debugLog('Loading data from Supabase...');
                 
                 // Cargar datos de Supabase con timeouts y mejor manejo de errores
                 const loadWithEmptyFallback = async <T,>(
@@ -488,10 +520,10 @@ const App: React.FC = () => {
                         const result = await Promise.race([
                             apiCall(),
                             new Promise<T>((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 10000)
+                                setTimeout(() => reject(new Error('Timeout')), 30000)
                             )
                         ]);
-                        console.log(`✓ Loaded ${name} from Supabase`);
+                        debugLog(`Loaded ${name} from Supabase`);
                         return result;
                     } catch (error) {
                         console.error(`❌ Failed to load ${name} from Supabase:`, error);
@@ -508,7 +540,7 @@ const App: React.FC = () => {
                 // Solo settings puede usar fallback porque puede venir de localStorage
                 // Cargar candidatos activos y descartados (aunque estén archivados) para el Dashboard
                 const [processes, activeCandidates, users, interviewEvents, settings] = await Promise.all([
-                    loadWithEmptyFallback(() => processesApi.getAll(false), initialProcesses, 'processes', true), // false = no attachments por defecto
+                    loadWithEmptyFallback(() => processesApi.getAllIncludingBulk(false), initialProcesses, 'processes', true), // regulares + masivos
                     loadWithEmptyFallback(() => candidatesApi.getAll(false, true), initialCandidates, 'candidates', true), // false = no archived, true = include relations (post-its, comments, history)
                     loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
                     loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
@@ -518,8 +550,7 @@ const App: React.FC = () => {
                 // Cargar candidatos descartados (aunque estén archivados) para el conteo del Dashboard
                 let discardedCandidates: Candidate[] = [];
                 try {
-                    const allArchived = await candidatesApi.getAll(true, true); // true = include archived
-                    discardedCandidates = allArchived.filter(c => c.discarded === true);
+                    discardedCandidates = await candidatesApi.getDiscardedArchived();
                 } catch (error) {
                     console.warn('Error cargando candidatos descartados:', error);
                 }
@@ -529,53 +560,47 @@ const App: React.FC = () => {
                 const newDiscarded = discardedCandidates.filter(c => !activeIds.has(c.id));
                 const candidates = [...activeCandidates, ...newDiscarded];
 
-                const sessionUserId = localStorage.getItem('ats_pro_user');
+                let sessionUserId = getStoredUserId();
+                if (sessionUserId && isSessionExpired()) {
+                    expireSessionDueToInactivity();
+                    sessionUserId = null;
+                } else if (sessionUserId) {
+                    ensureSessionActivityBaseline();
+                }
+
                 let currentUser: User | null = null;
                 
                 if (sessionUserId) {
-                    try {
-                        currentUser = await usersApi.getById(sessionUserId);
-                        if (currentUser) {
-                            await setCurrentUser(currentUser.id).catch(() => {
-                                // No crítico si falla
-                            });
+                    currentUser = users.find(u => u.id === sessionUserId) || null;
+                    if (!currentUser) {
+                        try {
+                            currentUser = await usersApi.getById(sessionUserId);
+                        } catch {
+                            currentUser = null;
                         }
-                    } catch (error) {
-                        // Buscar en los usuarios cargados
-                        currentUser = users.find(u => u.id === sessionUserId) || null;
+                    }
+                    if (currentUser) {
+                        touchSessionActivity();
+                        await setCurrentUser(currentUser.id).catch(() => {});
                     }
                 }
 
-                console.log('✓ Data loaded successfully');
+                debugLog('Data loaded successfully');
                 
                 // Inicializar Google Drive si está configurado
                 if (settings?.googleDrive?.connected && settings.googleDrive.accessToken) {
-                    console.log('🔧 Configurando Google Drive:', {
-                        hasAccessToken: !!settings.googleDrive.accessToken,
-                        hasRefreshToken: !!settings.googleDrive.refreshToken,
-                        refreshTokenLength: settings.googleDrive.refreshToken?.length || 0,
-                        tokenExpiry: settings.googleDrive.tokenExpiry
-                    });
-                    
-                    // Configurar callback para actualizar tokens en settings cuando se refrescan
                     googleDriveService.setTokenUpdateCallback(async (accessToken, refreshToken, expiresIn) => {
                         try {
                             const updatedGoogleDrive = {
                                 ...settings.googleDrive!,
                                 accessToken,
-                                refreshToken: refreshToken || settings.googleDrive!.refreshToken, // Preservar refresh token si no se proporciona uno nuevo
+                                refreshToken: refreshToken || settings.googleDrive!.refreshToken,
                                 tokenExpiry: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : settings.googleDrive!.tokenExpiry,
                             };
-                            console.log('💾 Actualizando tokens en settings:', {
-                                hasAccessToken: !!updatedGoogleDrive.accessToken,
-                                hasRefreshToken: !!updatedGoogleDrive.refreshToken,
-                                refreshTokenLength: updatedGoogleDrive.refreshToken?.length || 0
-                            });
                             const updatedSettings = await settingsApi.update({ googleDrive: updatedGoogleDrive });
                             setState(s => ({ ...s, settings: updatedSettings }));
-                            console.log('✅ Token de Google Drive actualizado en settings');
                         } catch (error) {
-                            console.error('❌ Error actualizando token en settings:', error);
+                            console.error('Error actualizando token en settings:', error);
                         }
                     });
                     
@@ -591,9 +616,24 @@ const App: React.FC = () => {
                     }
                 }
                 
+                // Filtrar procesos y candidatos según allowedClientIds del usuario
+                let filteredProcesses = processes;
+                let filteredCandidates = candidates;
+                if (currentUser && currentUser.allowedClientIds !== undefined && currentUser.allowedClientIds !== null) {
+                    const allowedClientIdsSet = new Set(currentUser.allowedClientIds);
+                    filteredProcesses = processes.filter(p => p.clientId && allowedClientIdsSet.has(p.clientId));
+                    
+                    const allowedProcessIds = new Set(filteredProcesses.map(p => p.id));
+                    filteredCandidates = candidates.filter(c => allowedProcessIds.has(c.processId));
+                }
+                
+                const bulkProcessId = currentUser
+                    ? getBulkSelectedProcessId(currentUser.id) ?? ''
+                    : '';
+
                 setState({
-                    processes,
-                    candidates,
+                    processes: filteredProcesses,
+                    candidates: filteredCandidates,
                     users,
                     applications: [],
                     settings,
@@ -602,19 +642,42 @@ const App: React.FC = () => {
                     currentUser,
                     view: { type: 'dashboard' },
                     lastViewedProcessId: null,
+                    lastViewedBulkProcessId: bulkProcessId,
+                    dashboardFilters: loadDashboardFilters(currentUser?.id),
+                    dashboardCache: null,
+                    dashboardCacheLoading: true,
                     loading: false,
                     toasts: [],
                 });
+
+                void fetchDashboardData(filteredProcesses, users, currentUser)
+                    .then(cache => {
+                        setState(s => ({
+                            ...s,
+                            dashboardCache: cache,
+                            dashboardCacheLoading: false,
+                        }));
+                    })
+                    .catch(err => {
+                        console.warn('Error precargando panel de datos:', err);
+                        setState(s => ({ ...s, dashboardCacheLoading: false }));
+                    });
             } catch (error) {
                 console.error('Error loading data:', error);
                 // NO usar datos de prueba como fallback - usar arrays vacíos
                 const loadedSettings = getSettings();
-                const sessionUserId = localStorage.getItem('ats_pro_user');
+                let sessionUserId = getStoredUserId();
+                if (sessionUserId && isSessionExpired()) {
+                    expireSessionDueToInactivity();
+                    sessionUserId = null;
+                }
+
                 let currentUser: User | null = null;
                 
                 if (sessionUserId) {
                     try {
                         currentUser = await usersApi.getById(sessionUserId);
+                        if (currentUser) ensureSessionActivityBaseline();
                     } catch (err) {
                         console.error('Error loading current user:', err);
                     }
@@ -632,6 +695,12 @@ const App: React.FC = () => {
                     currentUser,
                     view: { type: 'dashboard' },
                     lastViewedProcessId: null,
+                    lastViewedBulkProcessId: currentUser
+                        ? getBulkSelectedProcessId(currentUser.id) ?? ''
+                        : '',
+                    dashboardFilters: loadDashboardFilters(currentUser?.id),
+                    dashboardCache: null,
+                    dashboardCacheLoading: false,
                     loading: false,
                     toasts: [],
                 });
@@ -663,9 +732,9 @@ const App: React.FC = () => {
             try {
                 const user = await usersApi.login(email, password);
                 if (user) {
-                    localStorage.setItem('ats_pro_user', user.id);
+                    establishSession(user.id);
                     await setCurrentUser(user.id);
-                    setState(s => ({ ...s, currentUser: user }));
+                    window.location.reload(); // Recargar para filtrar datos según el usuario
                     return true;
                 }
                 return false;
@@ -674,52 +743,81 @@ const App: React.FC = () => {
                 // Fallback a búsqueda local
                 const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase());
                 if (user && user.password === password) {
-                    localStorage.setItem('ats_pro_user', user.id);
-                    setState(s => ({ ...s, currentUser: user }));
+                    establishSession(user.id);
+                    window.location.reload(); // Recargar para filtrar datos según el usuario
                     return true;
                 }
                 return false;
             }
         },
         logout: () => {
-            localStorage.removeItem('ats_pro_user');
-            setState(s => ({ ...s, currentUser: null, view: { type: 'dashboard' }, lastViewedProcessId: null }));
+            clearStoredSession();
+            window.location.reload(); // Recargar para limpiar datos en memoria
         },
         setView: (type, payload) => {
             setState(s => {
                 // Si se está navegando a un proceso específico, guardar como último proceso visto
                 if (type === 'process-view' && payload) {
-                    console.log('📌 Guardando último proceso visto:', payload);
                     return { ...s, view: { type, payload }, lastViewedProcessId: payload };
                 }
-                // Si se está navegando a la lista de procesos
                 if (type === 'processes') {
-                    // Si payload es explícitamente null, limpiar y mostrar lista (botón retroceso)
                     if (payload === null) {
-                        console.log('🔙 Limpiando último proceso visto (botón retroceso)');
                         return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                     }
-                    // Si hay un último proceso visto (navegación desde sidebar o cualquier otra)
-                    // ir directamente a ese proceso, a menos que payload sea explícitamente null
                     if (s.lastViewedProcessId) {
-                        // Verificar que el proceso aún existe
                         const processExists = s.processes.some(p => p.id === s.lastViewedProcessId);
                         if (processExists) {
-                            console.log('🔄 Navegando al último proceso visto:', s.lastViewedProcessId);
                             return { ...s, view: { type: 'process-view', payload: s.lastViewedProcessId } };
-                        } else {
-                            console.log('⚠️ Último proceso visto ya no existe, limpiando');
-                            return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                         }
+                        return { ...s, view: { type, payload: undefined }, lastViewedProcessId: null };
                     }
-                    // Si no hay último proceso visto, mostrar lista
-                    console.log('📋 Mostrando lista de procesos (sin último proceso visto)');
                     return { ...s, view: { type, payload: undefined } };
                 }
-                // Para cualquier otra navegación, mantener el último proceso visto
-                console.log('📍 Navegando a:', type, '(manteniendo último proceso visto:', s.lastViewedProcessId, ')');
                 return { ...s, view: { type, payload } };
             });
+        },
+        setLastViewedBulkProcessId: (processId) => {
+            setState(s => {
+                setBulkSelectedProcessId(processId, s.currentUser?.id);
+                return { ...s, lastViewedBulkProcessId: processId };
+            });
+        },
+        setDashboardFilters: (patch) => {
+            setState(s => {
+                const dashboardFilters = { ...s.dashboardFilters, ...patch };
+                saveDashboardFilters(dashboardFilters, s.currentUser?.id);
+                return { ...s, dashboardFilters };
+            });
+        },
+        loadDashboardCache: async (force = false) => {
+            if (!force && state.dashboardCache) return;
+            if (state.dashboardCacheLoading) return;
+
+            setState(s => ({ ...s, dashboardCacheLoading: true }));
+            const toastId = force
+                ? showToastHelper('Actualizando panel de datos...', 'loading', 0)
+                : null;
+            try {
+                const cache = await fetchDashboardData(
+                    state.processes,
+                    state.users,
+                    state.currentUser
+                );
+                setState(s => ({
+                    ...s,
+                    dashboardCache: cache,
+                    dashboardCacheLoading: false,
+                }));
+                if (toastId) {
+                    hideToastHelper(toastId);
+                    showToastHelper('Panel de datos actualizado', 'success', 2500);
+                }
+            } catch (error) {
+                console.error('Error cargando datos del panel:', error);
+                setState(s => ({ ...s, dashboardCacheLoading: false }));
+                if (toastId) hideToastHelper(toastId);
+                showToastHelper('No se pudo actualizar el panel de datos', 'error', 4000);
+            }
         },
         saveSettings: async (settings) => {
             try {
@@ -854,7 +952,12 @@ const App: React.FC = () => {
         },
         reloadProcesses: async () => {
             try {
-                const processes = await processesApi.getAll();
+                let processes = await processesApi.getAllIncludingBulk();
+                const currentUser = state.currentUser;
+                if (currentUser?.allowedClientIds != null) {
+                    const allowed = new Set(currentUser.allowedClientIds);
+                    processes = processes.filter(p => p.clientId && allowed.has(p.clientId));
+                }
                 setState(s => ({ ...s, processes }));
             } catch (error: any) {
                 console.error('Error reloading processes:', error);
@@ -947,27 +1050,24 @@ const App: React.FC = () => {
                             
                             // Verificar carpetas de candidatos que tienen proceso con carpeta configurada
                             for (const candidate of allCandidates) {
+                                if (candidate.googleDriveFolderId) continue;
                                 const process = state.processes.find(p => p.id === candidate.processId);
                                 if (!process?.googleDriveFolderId) continue;
                                 
                                 try {
-                                    // Buscar carpeta (incluso si no tiene una guardada, para encontrar carpetas huérfanas)
                                     const folder = await googleDriveService.getOrCreateCandidateFolder(
                                         candidate.name,
                                         process.googleDriveFolderId,
-                                        candidate.googleDriveFolderId // Puede ser undefined
+                                        candidate.googleDriveFolderId
                                     );
                                     
-                                    // Si el candidato no tenía carpeta o la carpeta encontrada es diferente, actualizar
-                                    if (!candidate.googleDriveFolderId || folder.id !== candidate.googleDriveFolderId) {
-                                        console.log(`🔄 ${!candidate.googleDriveFolderId ? 'Asociando' : 'Actualizando'} carpeta de candidato ${candidate.name}: ${candidate.googleDriveFolderId || '(sin carpeta)'} → ${folder.id}`);
+                                    if (folder.id !== candidate.googleDriveFolderId) {
                                         await candidatesApi.update(candidate.id, {
                                             ...candidate,
                                             googleDriveFolderId: folder.id,
                                             googleDriveFolderName: folder.name,
                                         }, state.currentUser?.id);
                                         
-                                        // Actualizar estado local
                                         setState(s => ({
                                             ...s,
                                             candidates: s.candidates.map(c => 
@@ -978,7 +1078,6 @@ const App: React.FC = () => {
                                         }));
                                     }
                                 } catch (error) {
-                                    // Ignorar errores individuales para no bloquear el proceso
                                     console.warn(`Error verificando carpeta para candidato ${candidate.name}:`, error);
                                 }
                             }
@@ -1086,8 +1185,10 @@ const App: React.FC = () => {
                 throw error; // Re-lanzar el error para que el componente pueda manejarlo
             }
         },
-        addCandidate: async (candidateData) => {
-            const loadingToastId = showToastHelper('Creando candidato...', 'loading', 0);
+        addCandidate: async (candidateData, options) => {
+            const silent = options?.silent ?? false;
+            const skipGoogleDrive = options?.skipGoogleDrive ?? false;
+            const loadingToastId = silent ? null : showToastHelper('Creando candidato...', 'loading', 0);
             try {
                 // Si Google Drive está conectado y el proceso tiene carpeta, crear carpeta del candidato
                 let folderId = candidateData.googleDriveFolderId;
@@ -1098,7 +1199,7 @@ const App: React.FC = () => {
                 const process = state.processes.find(p => p.id === candidateData.processId);
                 const processHasFolder = process?.googleDriveFolderId;
                 
-                if (isGoogleDriveConnected && googleDriveConfig && processHasFolder) {
+                if (!skipGoogleDrive && isGoogleDriveConnected && googleDriveConfig && processHasFolder) {
                     try {
                         hideToastHelper(loadingToastId);
                         const folderToastId = showToastHelper('Verificando carpeta en Google Drive...', 'loading', 0);
@@ -1131,7 +1232,9 @@ const App: React.FC = () => {
                     googleDriveFolderName: folderName,
                 };
                 
-                const newCandidate = await candidatesApi.create(candidateDataWithFolder, state.currentUser?.id);
+                const newCandidate = await candidatesApi.create(candidateDataWithFolder, state.currentUser?.id, {
+                    createdByName: state.currentUser?.name || state.currentUser?.email,
+                });
                 
                 // Recargar el candidato desde la BD para asegurar que tiene todos los datos (attachments, history, etc.)
                 let finalCandidate = newCandidate;
@@ -1163,14 +1266,14 @@ const App: React.FC = () => {
                     setState(s => ({ ...s, candidates: [...s.candidates, newCandidate] }));
                 }
                 
-                hideToastHelper(loadingToastId);
-                showToastHelper('Candidato creado exitosamente', 'success');
+                if (loadingToastId) hideToastHelper(loadingToastId);
+                if (!silent) showToastHelper('Candidato creado exitosamente', 'success');
                 
                 // Retornar el candidato final para que pueda ser usado por quien llama
                 return finalCandidate;
             } catch (error: any) {
                 console.error('Error adding candidate:', error);
-                hideToastHelper(loadingToastId);
+                if (loadingToastId) hideToastHelper(loadingToastId);
                 
                 // Verificar si es un error de permisos
                 const errorMessage = error.message || 'No se pudo crear el candidato en la base de datos.';
@@ -1341,19 +1444,24 @@ const App: React.FC = () => {
             try {
                 const newUser = await usersApi.create(userData);
                 setState(s => ({ ...s, users: [...s.users, newUser] }));
-            } catch (error) {
+                showToastHelper('Usuario creado correctamente', 'success', 3000);
+            } catch (error: any) {
                 console.error('Error adding user:', error);
-                const newUser: User = { ...userData, id: `user-${Date.now()}` };
-                setState(s => ({ ...s, users: [...s.users, newUser] }));
+                const errorMessage = error?.message || 'No se pudo guardar el usuario en la base de datos.';
+                showToastHelper(`Error al crear usuario: ${errorMessage}`, 'error', 7000);
+                throw error;
             }
         },
         updateUser: async (userData) => {
             try {
                 const updated = await usersApi.update(userData.id, userData);
                 setState(s => ({ ...s, users: s.users.map(u => u.id === userData.id ? updated : u) }));
-            } catch (error) {
+                showToastHelper('Usuario actualizado correctamente', 'success', 3000);
+            } catch (error: any) {
                 console.error('Error updating user:', error);
-                setState(s => ({ ...s, users: s.users.map(u => u.id === userData.id ? userData : u) }));
+                const errorMessage = error?.message || 'No se pudo actualizar el usuario en la base de datos.';
+                showToastHelper(`Error al actualizar usuario: ${errorMessage}`, 'error', 7000);
+                throw error;
             }
         },
         deleteUser: async (userId) => {
@@ -1415,31 +1523,68 @@ const App: React.FC = () => {
             }
         },
         addInterviewEvent: async (eventData) => {
+            const actor = {
+                userId: state.currentUser?.id,
+                userName: state.currentUser?.name || state.currentUser?.email || undefined,
+            };
+            const processId = state.candidates.find(c => c.id === eventData.candidateId)?.processId;
             try {
                 const newEvent = await interviewsApi.create(eventData, state.currentUser?.id);
                 setState(s => ({ ...s, interviewEvents: [...s.interviewEvents, newEvent] }));
+                const { interviewSchedulingApi } = await import('./lib/api/interviewScheduling');
+                void interviewSchedulingApi.recordScheduled(newEvent, actor, processId);
+                return newEvent;
             } catch (error) {
                 console.error('Error adding interview event:', error);
                 const newEvent: InterviewEvent = { ...eventData, id: `evt-${Date.now()}` };
                 setState(s => ({ ...s, interviewEvents: [...s.interviewEvents, newEvent] }));
+                return newEvent;
             }
         },
         updateInterviewEvent: async (eventData) => {
+            const previous = state.interviewEvents.find(e => e.id === eventData.id);
+            const actor = {
+                userId: state.currentUser?.id,
+                userName: state.currentUser?.name || state.currentUser?.email || undefined,
+            };
+            const processId = state.candidates.find(c => c.id === eventData.candidateId)?.processId;
             try {
                 const updated = await interviewsApi.update(eventData.id, eventData);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.map(e => e.id === eventData.id ? updated : e) }));
+                const { interviewSchedulingApi } = await import('./lib/api/interviewScheduling');
+                void interviewSchedulingApi.recordRescheduled(updated, actor, previous, processId);
             } catch (error) {
                 console.error('Error updating interview event:', error);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.map(e => e.id === eventData.id ? eventData : e) }));
             }
         },
         deleteInterviewEvent: async (eventId) => {
+            const previous = state.interviewEvents.find(e => e.id === eventId);
+            const actor = {
+                userId: state.currentUser?.id,
+                userName: state.currentUser?.name || state.currentUser?.email || undefined,
+            };
+            const processId = previous
+                ? state.candidates.find(c => c.id === previous.candidateId)?.processId
+                : undefined;
             try {
                 await interviewsApi.delete(eventId);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.filter(e => e.id !== eventId) }));
+                if (previous) {
+                    const { interviewSchedulingApi } = await import('./lib/api/interviewScheduling');
+                    void interviewSchedulingApi.recordCancelled(previous, actor, processId);
+                }
             } catch (error) {
                 console.error('Error deleting interview event:', error);
                 setState(s => ({ ...s, interviewEvents: s.interviewEvents.filter(e => e.id !== eventId) }));
+            }
+        },
+        refreshInterviewEvents: async () => {
+            try {
+                const events = await interviewsApi.getAll();
+                setState(s => ({ ...s, interviewEvents: events }));
+            } catch (error) {
+                console.error('Error refreshing interview events:', error);
             }
         },
         addPostIt: async (candidateId, postItData) => {
@@ -1665,7 +1810,46 @@ const App: React.FC = () => {
         hideToast: (id: string) => {
             hideToastHelper(id);
         },
-    }), [state.currentUser, state.users]);
+        setProcessEmbeddedTableActive: (active: boolean) => {
+            setState(s => (s.processEmbeddedTableActive === active ? s : { ...s, processEmbeddedTableActive: active }));
+        },
+    }), [state.currentUser, state.users, state.processes, state.dashboardCache, state.dashboardCacheLoading]);
+
+    // Cerrar sesión tras 1 hora sin actividad (clics, teclas, scroll)
+    useEffect(() => {
+        if (!state.currentUser) return;
+
+        touchSessionActivity();
+
+        let lastTouch = Date.now();
+        const ACTIVITY_THROTTLE_MS = 30_000;
+
+        const onActivity = () => {
+            const now = Date.now();
+            if (now - lastTouch < ACTIVITY_THROTTLE_MS) return;
+            lastTouch = now;
+            touchSessionActivity(now);
+        };
+
+        const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'] as const;
+        for (const eventName of activityEvents) {
+            window.addEventListener(eventName, onActivity, { passive: true });
+        }
+
+        const intervalId = window.setInterval(() => {
+            if (isSessionExpired()) {
+                expireSessionDueToInactivity();
+                window.location.reload();
+            }
+        }, 60_000);
+
+        return () => {
+            for (const eventName of activityEvents) {
+                window.removeEventListener(eventName, onActivity);
+            }
+            window.clearInterval(intervalId);
+        };
+    }, [state.currentUser?.id]);
 
     // Sincronización automática DESHABILITADA para reducir consumo de compute hours
     // La sincronización ahora es manual mediante el botón "Actualizar" en el sidebar
@@ -1684,6 +1868,11 @@ const App: React.FC = () => {
     const getLabel = (key: string, fallback: string): string => {
         return state.settings?.customLabels?.[key] || fallback;
     };
+
+    const visibleSections = state.currentUser ? getVisibleSections(state.currentUser) : [];
+    const canSeeBulkProcesses = visibleSections.includes('bulk-processes');
+    const isBulkProcessesView = state.view.type === 'bulk-processes';
+    const needsFixedViewport = isBulkProcessesView || state.processEmbeddedTableActive;
     
     const renderView = () => {
         // Verificar si el usuario tiene acceso a la sección actual
@@ -1703,7 +1892,8 @@ const App: React.FC = () => {
                 'users': 'users',
                 'settings': 'settings',
                 'bulk-import': 'bulk-import',
-                'bulk-processes': 'bulk-processes'
+                'bulk-processes': 'bulk-processes',
+                'opsflow-handoffs': 'opsflow-handoffs'
             };
             
             const requiredSection = viewSectionMap[state.view.type];
@@ -1733,7 +1923,8 @@ const App: React.FC = () => {
             case 'users': return <Users />;
             case 'settings': return <Settings />;
             case 'bulk-import': return <BulkImportView />;
-            case 'bulk-processes': return <BulkProcessesView />;
+            case 'bulk-processes': return null;
+            case 'opsflow-handoffs': return <OpsFlowHandoffHistory />;
             case 'archived': return <ArchivedCandidates />;
             default: return <Dashboard />;
         }
@@ -1757,8 +1948,20 @@ const App: React.FC = () => {
         <AppContext.Provider value={appContextValue}>
             <div className="flex h-screen bg-gray-50 font-sans text-gray-900">
                 <Sidebar />
-                <div className="flex-1 flex flex-col overflow-y-auto min-h-0 pt-16 md:pt-0">
-                    {renderView()}
+                <div className={`flex-1 flex flex-col min-h-0 pt-16 md:pt-0 ${needsFixedViewport ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+                    {canSeeBulkProcesses && (
+                        <div
+                            className={isBulkProcessesView ? 'flex flex-col flex-1 min-h-0' : 'hidden'}
+                            aria-hidden={!isBulkProcessesView}
+                        >
+                            <BulkProcessesView />
+                        </div>
+                    )}
+                    {!isBulkProcessesView && (
+                        <div className={state.processEmbeddedTableActive ? 'flex flex-col flex-1 min-h-0' : undefined}>
+                            {renderView()}
+                        </div>
+                    )}
                 </div>
                 <ToastContainer toasts={state.toasts || []} onClose={(id) => hideToastHelper(id)} />
             </div>

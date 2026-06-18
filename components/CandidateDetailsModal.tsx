@@ -1,14 +1,15 @@
 import React, { useRef, useState } from 'react';
 import { useAppState } from '../App';
-import { Candidate, Attachment, InterviewEvent, UserRole, Process, DocumentCategory, User as AppUser } from '../types';
-import { X, Mail, Phone, Linkedin, User, FileText, Eye, Download, Upload, Trash2, Briefcase, DollarSign, Calendar, Info, MapPin, Edit, ArrowRightLeft, Copy, MessageCircle, PhoneCall, Archive, Undo2 } from 'lucide-react';
+import { Candidate, Attachment, InterviewEvent, UserRole, Process, DocumentCategory } from '../types';
+import { X, Mail, Phone, Linkedin, User, FileText, Eye, Download, Upload, Trash2, Briefcase, DollarSign, Calendar, Info, MapPin, Edit, ArrowRightLeft, Copy, MessageCircle, PhoneCall, Archive, Undo2, RefreshCw, Loader, Send } from 'lucide-react';
 import { ScheduleInterviewModal } from './ScheduleInterviewModal';
 import { ChangeProcessModal } from './ChangeProcessModal';
 import { CandidateCommentsModal } from './CandidateCommentsModal';
 import { DocumentChecklist } from './DocumentChecklist';
 import { SearchableSelect } from './SearchableSelect';
 import { DiscardCandidateModal } from './DiscardCandidateModal';
-import { usersApi } from '../lib/api/users';
+import { SendToOpsFlowModal } from './SendToOpsFlowModal';
+import { CandidateTransitRoutes } from './CandidateTransitRoutes';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -54,37 +55,13 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const [isEditing, setIsEditing] = useState(false);
     const [editableCandidate, setEditableCandidate] = useState<Candidate>(initialCandidate);
     const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
-    const [selectableUsers, setSelectableUsers] = useState<AppUser[]>(
-        state.users.length > 0 ? state.users : (state.currentUser ? [state.currentUser] : [])
-    );
+    const [isSendToOpsFlowOpen, setIsSendToOpsFlowOpen] = useState(false);
     
     // Usar useRef para rastrear el último candidato procesado y evitar bucles infinitos
     const lastProcessedCandidateRef = React.useRef<string>('');
     
     // Marcar como revisado cuando se abre el modal y el candidato está en etapa crítica
     // SOLO si el usuario es cliente (client), no para admin/recruiter
-    React.useEffect(() => {
-        if (state.users.length > 0) {
-            setSelectableUsers(state.users);
-            return;
-        }
-
-        usersApi.getAll()
-            .then(users => {
-                if (users.length > 0) {
-                    setSelectableUsers(users);
-                } else if (state.currentUser) {
-                    setSelectableUsers([state.currentUser]);
-                }
-            })
-            .catch(error => {
-                console.warn('Error cargando usuarios para selector de creador:', error);
-                if (state.currentUser) {
-                    setSelectableUsers([state.currentUser]);
-                }
-            });
-    }, [state.users, state.currentUser]);
-
     React.useEffect(() => {
         const checkAndMarkAsReviewed = async () => {
             const currentCandidate = state.candidates.find(c => c.id === initialCandidate.id);
@@ -132,7 +109,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         if (!updatedCandidate) return;
         
         // Crear un hash simple del candidato para detectar cambios reales (sin attachments para evitar bucles)
-        const candidateHash = `${updatedCandidate.id}-${updatedCandidate.stageId}-${updatedCandidate.name}-${updatedCandidate.email}-${updatedCandidate.createdBy || ''}`;
+        const candidateHash = `${updatedCandidate.id}-${updatedCandidate.stageId}-${updatedCandidate.name}-${updatedCandidate.email}`;
         
         // Solo procesar si el candidato realmente cambió (no solo los attachments)
         if (lastProcessedCandidateRef.current === candidateHash && !isEditing) {
@@ -191,12 +168,14 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     // Sincronizar archivos de Google Drive con attachments al abrir el modal
     // Usar useRef para evitar múltiples sincronizaciones y preservar categorías
     const hasSyncedDriveRef = React.useRef<boolean>(false);
+    const [isSyncingDrive, setIsSyncingDrive] = React.useState(false);
     
-    React.useEffect(() => {
-        // Solo sincronizar una vez al abrir el modal, no cada vez que cambia el candidato
-        if (hasSyncedDriveRef.current) return;
+    // Función de sincronización que puede ser llamada manualmente
+    const syncDriveFiles = React.useCallback(async (force: boolean = false) => {
+        // Si ya se sincronizó y no es forzado, no hacer nada
+        if (hasSyncedDriveRef.current && !force) return;
         
-        const syncDriveFiles = async () => {
+        setIsSyncingDrive(true);
             const googleDriveConfig = state.settings?.googleDrive;
             const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
             if (!isGoogleDriveConnected || !googleDriveConfig) return;
@@ -235,22 +214,63 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                     return;
                 }
 
-                // Listar archivos de la carpeta de Google Drive
-                const driveFiles = await googleDriveService.listFilesInFolder(folder.id);
+                // Listar archivos de la carpeta de Google Drive (excluir carpetas)
+                const allItems = await googleDriveService.listFilesInFolder(folder.id);
+                const driveFiles = allItems.filter(item => 
+                    item.mimeType !== 'application/vnd.google-apps.folder'
+                );
                 
-                // Obtener los IDs de Google Drive de los attachments actuales (extraer de la URL)
+                console.log(`📁 Archivos encontrados en Drive para ${currentCandidate.name}:`, driveFiles.length);
+                console.log('📋 Archivos:', driveFiles.map(f => ({ id: f.id, name: f.name })));
+                
+                // Función mejorada para extraer ID de Google Drive de cualquier formato de URL
+                const extractDriveFileId = (url: string | undefined): string | null => {
+                    if (!url) return null;
+                    
+                    // Formato 1: https://drive.google.com/file/d/{id}/view o /preview
+                    let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) return match[1];
+                    
+                    // Formato 2: https://drive.google.com/open?id={id}
+                    match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) return match[1];
+                    
+                    // Formato 3: https://docs.google.com/document/d/{id}/...
+                    match = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) return match[1];
+                    
+                    // Formato 4: https://docs.google.com/spreadsheets/d/{id}/...
+                    match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+                    if (match && match[1]) return match[1];
+                    
+                    return null;
+                };
+                
+                // Obtener los IDs de Google Drive de los attachments actuales
                 const existingDriveFileIds = new Set<string>();
                 
                 (currentCandidate.attachments || []).forEach(att => {
-                    // Extraer ID de Google Drive de la URL (formato: .../file/d/{id}/...)
-                    const match = att.url?.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-                    if (match && match[1]) {
-                        existingDriveFileIds.add(match[1]);
+                    const fileId = extractDriveFileId(att.url);
+                    if (fileId) {
+                        existingDriveFileIds.add(fileId);
+                        console.log(`✅ Attachment ya registrado: ${att.name} (ID: ${fileId})`);
+                    } else {
+                        console.warn(`⚠️ No se pudo extraer ID de Google Drive de: ${att.url}`);
                     }
                 });
 
+                console.log(`📊 IDs de archivos ya registrados:`, Array.from(existingDriveFileIds));
+                
                 // Encontrar archivos de Drive que no están en los attachments
-                const newFiles = driveFiles.filter(file => !existingDriveFileIds.has(file.id));
+                const newFiles = driveFiles.filter(file => {
+                    const isNew = !existingDriveFileIds.has(file.id);
+                    if (!isNew) {
+                        console.log(`⏭️ Archivo ya registrado, omitiendo: ${file.name} (ID: ${file.id})`);
+                    }
+                    return isNew;
+                });
+                
+                console.log(`🆕 Archivos nuevos encontrados: ${newFiles.length}`, newFiles.map(f => f.name));
 
                 // Si hay archivos nuevos, agregarlos como attachments (sin categoría por defecto)
                 if (newFiles.length > 0) {
@@ -272,21 +292,58 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                         attachments: [...(latestCandidate.attachments || []), ...newAttachments],
                     };
 
-                    await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+                    const savedCandidate = await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
                     console.log(`✅ Sincronizados ${newFiles.length} archivos de Google Drive para ${currentCandidate.name}`);
+                    
+                    // Actualizar el estado local del candidato con los attachments sincronizados
+                    if (savedCandidate) {
+                        setEditableCandidate(savedCandidate);
+                        // Actualizar el contador de attachments
+                        setAttachmentsCount(savedCandidate.attachments?.length || 0);
+                    } else {
+                        // Si no se retorna el candidato actualizado, actualizar manualmente
+                        setEditableCandidate(updatedCandidate);
+                        setAttachmentsCount(updatedCandidate.attachments?.length || 0);
+                    }
+                    
+                    actions.showToast(
+                        newFiles.length > 0 
+                            ? `✅ ${newFiles.length} documento(s) sincronizado(s) desde Google Drive`
+                            : '✅ Sincronización completada. No hay archivos nuevos.',
+                        'success',
+                        3000
+                    );
+                } else {
+                    console.log('✅ No hay archivos nuevos para sincronizar');
+                    if (force) {
+                        // Recargar el contador para asegurar que esté actualizado
+                        try {
+                            const { candidatesApi } = await import('../lib/api/candidates');
+                            const count = await candidatesApi.getAttachmentsCount(initialCandidate.id);
+                            setAttachmentsCount(count);
+                        } catch (error) {
+                            console.warn('Error recargando conteo de attachments:', error);
+                        }
+                        actions.showToast('✅ Todos los documentos están sincronizados', 'success', 2000);
+                    }
                 }
                 
                 hasSyncedDriveRef.current = true; // Marcar como sincronizado
-            } catch (error) {
-                console.warn('Error sincronizando archivos de Google Drive:', error);
+            } catch (error: any) {
+                console.error('❌ Error sincronizando archivos de Google Drive:', error);
                 hasSyncedDriveRef.current = true; // Marcar como sincronizado incluso si hay error para evitar reintentos
-                // No mostrar error al usuario, es una sincronización en background
+                if (force) {
+                    actions.showToast(`Error al sincronizar: ${error.message || 'Error desconocido'}`, 'error', 5000);
+                }
+            } finally {
+                setIsSyncingDrive(false);
             }
-        };
-
+    }, [state.settings?.googleDrive, state.candidates, state.processes, initialCandidate.id, actions, state.currentUser?.name]);
+    
+    React.useEffect(() => {
         // Ejecutar después de un pequeño delay para asegurar que el modal esté completamente cargado
         const timer = setTimeout(() => {
-            syncDriveFiles();
+            syncDriveFiles(false);
         }, 500);
 
         return () => {
@@ -329,9 +386,6 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     const candidateFromState = state.candidates.find(c => c.id === initialCandidate.id);
     const currentCandidate = isEditing ? editableCandidate : (candidateFromState || initialCandidate);
     const isArchived = !!currentCandidate.archived;
-    const creatorName = currentCandidate.createdBy
-        ? selectableUsers.find(user => user.id === currentCandidate.createdBy)?.name || currentCandidate.createdBy
-        : 'Sin asignar';
     const processStages = process?.stages || [];
     const presentationStageIndex = processStages.findIndex(stage => stage.name.toLowerCase().includes('present'));
     const currentStageIndex = processStages.findIndex(stage => stage.id === currentCandidate.stageId);
@@ -392,9 +446,16 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
     // Handler para cambiar la etapa directamente (sin modo edición)
     const handleStageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newStageId = e.target.value;
-        const updatedCandidate = { ...currentCandidate, stageId: newStageId };
-        setEditableCandidate(updatedCandidate);
-        await actions.updateCandidate(updatedCandidate, state.currentUser?.name);
+        // IMPORTANTE: Asegurar que se incluyan todos los attachments existentes
+        // para evitar que se eliminen al cambiar de etapa
+        const candidateWithAllAttachments = {
+            ...currentCandidate,
+            stageId: newStageId,
+            // Preservar todos los attachments existentes
+            attachments: editableCandidate.attachments || currentCandidate.attachments || []
+        };
+        setEditableCandidate(candidateWithAllAttachments);
+        await actions.updateCandidate(candidateWithAllAttachments, state.currentUser?.name);
     };
     
     // Handler para cambiar la visibilidad directamente (sin modo edición)
@@ -925,6 +986,16 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             <span className="sm:hidden">ZIP</span>
                         </button>
                         {canEdit && (
+                            <button
+                                onClick={() => setIsSendToOpsFlowOpen(true)}
+                                className="flex items-center px-2 md:px-3 py-1.5 bg-primary-600 text-white border border-primary-600 rounded-md shadow-sm text-xs md:text-sm font-medium hover:bg-primary-700"
+                            >
+                                <Send className="w-4 h-4 md:mr-2" />
+                                <span className="hidden sm:inline">Enviar a OpsFlow</span>
+                                <span className="sm:hidden">OpsFlow</span>
+                            </button>
+                        )}
+                        {canEdit && (
                             <>
                                 <button
                                     onClick={handleArchiveToggle}
@@ -997,17 +1068,6 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                 <div><label className="block text-sm font-medium text-gray-700">Edad</label><input type="number" name="age" value={editableCandidate.age || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">DNI</label><input type="text" name="dni" value={editableCandidate.dni || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Dirección / ciudad</label><input type="text" name="address" value={editableCandidate.address || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
-                                                <div className="sm:col-span-2">
-                                                    <label className="block text-sm font-medium text-gray-700">Creado por</label>
-                                                    <select name="createdBy" value={editableCandidate.createdBy || ''} onChange={handleInputChange} className="mt-1 block w-full input">
-                                                        <option value="">Sin asignar</option>
-                                                        {selectableUsers.map(user => (
-                                                            <option key={user.id} value={user.id}>
-                                                                {user.name} ({user.email})
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div>
@@ -1060,23 +1120,12 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div><label className="block text-sm font-medium text-gray-700">Fuente</label>
                                                     <select name="source" value={editableCandidate.source || ''} onChange={handleInputChange} className="mt-1 block w-full input">
-                                                        {(() => {
-                                                            // Validar que candidateSources sea un array válido
-                                                            const candidateSources = state.settings?.candidateSources;
-                                                            const isValidArray = Array.isArray(candidateSources) && candidateSources.length > 0;
-                                                            const sources = isValidArray
-                                                                ? candidateSources
-                                                                : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro'];
-                                                            
-                                                            // Log para debuggear si hay problema
-                                                            if (!isValidArray && candidateSources !== undefined) {
-                                                                console.warn('⚠️ CandidateDetailsModal: candidateSources no es un array válido:', candidateSources, 'Type:', typeof candidateSources, 'IsArray:', Array.isArray(candidateSources));
-                                                            }
-                                                            
-                                                            return sources.map(opt => (
-                                                                <option key={opt} value={opt}>{opt}</option>
-                                                            ));
-                                                        })()}
+                                                        {(state.settings?.candidateSources && state.settings.candidateSources.length > 0 
+                                                            ? state.settings.candidateSources 
+                                                            : ['LinkedIn', 'Referencia', 'Sitio web', 'Otro']
+                                                        ).map(opt => (
+                                                            <option key={opt} value={opt}>{opt}</option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                                 <div><label className="block text-sm font-medium text-gray-700">Expectativa salarial</label><input type="text" name="salaryExpectation" value={editableCandidate.salaryExpectation || ''} onChange={handleInputChange} className="mt-1 block w-full input"/></div>
@@ -1141,7 +1190,6 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                             <h3 className="font-semibold text-gray-700 mb-3">Contacto e información personal</h3>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <DetailItem icon={Mail} label="Correo" value={currentCandidate.email} href={`mailto:${currentCandidate.email}`} />
-                                                <DetailItem icon={User} label="Creado por" value={creatorName} />
                                                 <div className="flex flex-col">
                                                     <div className="flex items-start text-sm">
                                                         <Phone className="w-4 h-4 mr-3 mt-0.5 text-gray-400 flex-shrink-0" />
@@ -1227,6 +1275,18 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                                 <DetailItem icon={MapPin} label="Dirección" value={currentCandidate.address} />
                                                 <DetailItem icon={MapPin} label="Provincia" value={currentCandidate.province} />
                                                 <DetailItem icon={MapPin} label="Distrito" value={currentCandidate.district} />
+                                                {!state.processes.find(p => p.id === currentCandidate.processId)?.isBulkProcess && (
+                                                    <div className="col-span-full">
+                                                        <CandidateTransitRoutes
+                                                            candidate={currentCandidate}
+                                                            locations={state.settings?.interviewLocations}
+                                                            onCopy={(text) => {
+                                                                void navigator.clipboard.writeText(text);
+                                                                actions.showToast('Enlace copiado', 'success', 2000);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
                                                 <DetailItem icon={DollarSign} label="Expectativa salarial" value={currentCandidate.salaryExpectation ? `${state.settings?.currencySymbol || ''}${currentCandidate.salaryExpectation.replace(/[$\€£S/]/g, '').trim()}` : 'N/D'} />
                                                 <DetailItem icon={DollarSign} label="Salario acordado" value={currentCandidate.agreedSalary ? `${state.settings?.currencySymbol || ''}${currentCandidate.agreedSalary.replace(/[$\€£S/]/g, '').trim()}` : 'N/D'} />
                                                     <DetailItem icon={Calendar} label="Fecha de contratación" value={currentCandidate.hireDate ? new Date(currentCandidate.hireDate).toLocaleDateString('es-ES') : undefined} />
@@ -1341,6 +1401,35 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                                     )}
                                     <input type="file" ref={attachmentInputRef} onChange={handleAttachmentUpload} className="hidden" />
                                     <div className="mt-2 space-y-2">
+                                        {/* Botón para sincronizar archivos de Google Drive */}
+                                        {currentCandidate.googleDriveFolderId && state.settings?.googleDrive?.connected && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    hasSyncedDriveRef.current = false; // Permitir nueva sincronización
+                                                    syncDriveFiles(true);
+                                                }}
+                                                disabled={isSyncingDrive}
+                                                className={`flex items-center justify-center w-full px-3 py-2 text-sm font-medium rounded-md transition-colors mb-2 ${
+                                                    isSyncingDrive
+                                                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                                                }`}
+                                                title="Sincronizar documentos desde Google Drive"
+                                            >
+                                                {isSyncingDrive ? (
+                                                    <>
+                                                        <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                                        <span>Sincronizando...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <RefreshCw className="w-4 h-4 mr-2" />
+                                                        <span>Sincronizar con Google Drive</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
                                         <button 
                                             type="button" 
                                             onClick={() => attachmentInputRef.current?.click()} 
@@ -1398,23 +1487,7 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                             <div className="bg-gray-100 rounded-xl border flex flex-col items-center justify-center p-4 min-h-[620px]">
                                 {previewFile ? (
                                     <div className="w-full h-full">
-                                    {previewFile.url.includes('storage.tally.so') ? (
-                                        <div className="text-center p-8">
-                                            <FileText className="w-16 h-16 mx-auto text-gray-400" />
-                                            <p className="mt-2 text-gray-700 font-medium">Este archivo viene directamente de Tally.</p>
-                                            <p className="mt-1 text-sm text-gray-600">
-                                                Tally no permite previsualizar sus archivos privados dentro de la app. Los nuevos archivos se copiarán a Supabase para poder previsualizarlos.
-                                            </p>
-                                            <a
-                                                href={previewFile.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="mt-4 inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                                            >
-                                                <Download className="w-4 h-4 mr-2" /> Abrir archivo
-                                            </a>
-                                        </div>
-                                    ) : previewFile.type.startsWith('image/') ? (
+                                    {previewFile.type.startsWith('image/') ? (
                                         <img src={previewFile.url} alt={previewFile.name} className="w-full h-full object-contain" />
                                     ) : previewFile.type === 'application/pdf' || previewFile.url.includes('drive.google.com') ? (
                                         <iframe 
@@ -1680,6 +1753,13 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
                         setIsDiscardModalOpen(false);
                         onClose(); // Cerrar el modal de detalles después de descartar
                     }}
+                />
+            )}
+            {isSendToOpsFlowOpen && (
+                <SendToOpsFlowModal
+                    isOpen={isSendToOpsFlowOpen}
+                    onClose={() => setIsSendToOpsFlowOpen(false)}
+                    candidates={[initialCandidate]}
                 />
             )}
             

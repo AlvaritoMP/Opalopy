@@ -1,47 +1,71 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppState } from '../App';
 import { FormIntegration, Process, FieldMapping } from '../types';
+import {
+    filterTallyFieldMapping,
+    getTallyIntegrationMappingFields,
+    normalizeTallyFieldMapping,
+} from '../lib/bulkTableColumns';
 import { X, Copy, ChevronDown, ChevronUp, Settings } from 'lucide-react';
 
 interface FormIntegrationModalProps {
     integration: FormIntegration | null; // null = crear nueva, objeto = editar existente
     onClose: () => void;
+    availableProcesses?: Process[]; // opcional para mantener retrocompatibilidad si se usa en otro lado
 }
 
-export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integration, onClose }) => {
+export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integration, onClose, availableProcesses }) => {
     const { state, actions, getLabel } = useAppState();
     const isEditing = integration !== null;
+    
+    // Usar los procesos pasados por prop o los del estado por defecto
+    const processesList = availableProcesses || state.processes;
     
     const [platform, setPlatform] = useState<'Tally' | 'Google Forms' | 'Microsoft Forms'>(
         integration?.platform as any || 'Tally'
     );
     const [formName, setFormName] = useState(integration?.formName || '');
     const [formIdOrUrl, setFormIdOrUrl] = useState(integration?.formIdOrUrl || '');
-    const [processId, setProcessId] = useState(integration?.processId || state.processes[0]?.id || '');
+    const [processId, setProcessId] = useState(integration?.processId || processesList[0]?.id || '');
     const [showWebhook, setShowWebhook] = useState(false);
     const [webhookUrl, setWebhookUrl] = useState(integration?.webhookUrl || '');
     const [isSaving, setIsSaving] = useState(false);
-    const [showFieldMapping, setShowFieldMapping] = useState(
-        isEditing || Object.keys(integration?.fieldMapping || {}).length > 0
+    const [showFieldMapping, setShowFieldMapping] = useState(false);
+    const [fieldMapping, setFieldMapping] = useState<FieldMapping>(() =>
+        normalizeTallyFieldMapping(integration?.fieldMapping || {})
     );
-    const [fieldMapping, setFieldMapping] = useState<FieldMapping>(integration?.fieldMapping || {});
-    
-    // Campos disponibles en el candidato
-    const candidateFields = [
-        { key: 'name', label: 'Nombre', placeholder: 'nombre, name, nombre_completo' },
-        { key: 'email', label: 'Email', placeholder: 'email, correo, e-mail' },
-        { key: 'phone', label: 'Teléfono', placeholder: 'phone, telefono, teléfono' },
-        { key: 'phone2', label: 'Teléfono 2', placeholder: 'phone2, telefono2, teléfono_secundario' },
-        { key: 'description', label: 'Descripción', placeholder: 'description, descripcion, notas' },
-        { key: 'source', label: 'Fuente', placeholder: 'source, fuente, origen' },
-        { key: 'salaryExpectation', label: 'Expectativa salarial', placeholder: 'salaryExpectation, expectativa_salarial' },
-        { key: 'dni', label: 'DNI', placeholder: 'dni, documento, documento_identidad' },
-        { key: 'linkedinUrl', label: 'LinkedIn', placeholder: 'linkedinUrl, linkedin, perfil_linkedin' },
-        { key: 'address', label: 'Dirección', placeholder: 'address, direccion, dirección' },
-        { key: 'province', label: 'Provincia', placeholder: 'province, provincia' },
-        { key: 'district', label: 'Distrito', placeholder: 'district, distrito' },
-        { key: 'age', label: 'Edad', placeholder: 'age, edad' },
-    ];
+
+    // Proceso seleccionado
+    const selectedProcessDetails = useMemo(() => {
+        return processesList.find(p => p.id === processId);
+    }, [processId, processesList]);
+
+    // Campos del proceso (simple o masivo según bulkConfig del proceso vinculado)
+    const candidateFields = useMemo(
+        () => getTallyIntegrationMappingFields(selectedProcessDetails),
+        [selectedProcessDetails]
+    );
+
+    const allowedFieldKeys = useMemo(
+        () => new Set(candidateFields.map(f => f.key)),
+        [candidateFields]
+    );
+
+    // Al cambiar de proceso, quitar mapeos de campos que ya no aplican
+    useEffect(() => {
+        setFieldMapping(prev => filterTallyFieldMapping(prev, allowedFieldKeys));
+    }, [allowedFieldKeys]);
+
+    const buildFieldMappingPayload = (): FieldMapping | undefined => {
+        const trimmed: FieldMapping = {};
+        for (const [key, val] of Object.entries(fieldMapping)) {
+            if (!allowedFieldKeys.has(key)) continue;
+            const t = typeof val === 'string' ? val.trim() : '';
+            if (t) trimmed[key] = t;
+        }
+        const normalized = normalizeTallyFieldMapping(trimmed);
+        return Object.keys(normalized).length > 0 ? normalized : undefined;
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -67,7 +91,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                     formName: formName.trim(),
                     formIdOrUrl: formIdOrUrl.trim(),
                     processId,
-                    fieldMapping,
+                    fieldMapping: buildFieldMappingPayload(),
                 });
                 onClose();
             } else {
@@ -77,7 +101,7 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                     formName: formName.trim(),
                     formIdOrUrl: formIdOrUrl.trim(),
                     processId,
-                    fieldMapping: Object.keys(fieldMapping).length > 0 ? fieldMapping : undefined,
+                    fieldMapping: buildFieldMappingPayload(),
                 });
                 setWebhookUrl(newIntegration.webhookUrl);
                 setShowWebhook(true);
@@ -127,10 +151,26 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
          );
     }
     
+    const stopSpaceScrollInInputs = (e: React.KeyboardEvent) => {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') return;
+        e.stopPropagation();
+        if (e.key === ' ') {
+            e.nativeEvent.stopImmediatePropagation();
+        }
+    };
+
     return (
-         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl h-[calc(100vh-2rem)] max-h-[90vh] flex flex-col overflow-hidden">
-                <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+         <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onKeyDownCapture={stopSpaceScrollInInputs}
+         >
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[min(90vh,calc(100vh-2rem))] flex flex-col overflow-hidden my-auto">
+                <form
+                    onSubmit={handleSubmit}
+                    onKeyDownCapture={stopSpaceScrollInInputs}
+                    className="flex flex-col min-h-0 flex-1 overflow-hidden"
+                >
                     <div className="p-6 border-b flex justify-between items-center flex-shrink-0">
                         <h2 className="text-2xl font-bold text-gray-800">
                             {isEditing 
@@ -206,10 +246,10 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                                 disabled={isSaving}
                                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                             >
-                                {state.processes.length === 0 ? (
+                                {processesList.length === 0 ? (
                                     <option value="">No hay procesos disponibles</option>
                                 ) : (
-                                    state.processes.map(p => <option key={p.id} value={p.id}>{p.title}</option>)
+                                    processesList.map(p => <option key={p.id} value={p.id}>{p.title}{p.isBulkProcess ? ' (Masivo)' : ''}</option>)
                                 )}
                             </select>
                             <p className="mt-1 text-xs text-gray-500">
@@ -242,51 +282,63 @@ export const FormEditorModal: React.FC<FormIntegrationModalProps> = ({ integrati
                                 )}
                             </button>
                             {showFieldMapping && (
-                                <div className="mt-4 space-y-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                                    <div className="mb-4">
-                                        <p className="text-sm font-medium text-blue-900 mb-2">
+                                <div className="mt-4 flex flex-col min-h-0 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+                                    <div className="flex-shrink-0 p-4 pb-2 space-y-2">
+                                        <p className="text-sm font-medium text-blue-900">
                                             ¿Cómo funciona el mapeo?
                                         </p>
-                                        <p className="text-xs text-blue-800 mb-2">
+                                        <p className="text-xs text-blue-800">
                                             Si los nombres de tus campos en Tally son diferentes a los estándar, 
                                             puedes mapearlos aquí. Por ejemplo, si en Tally tu campo se llama 
-                                            <strong>"Nombre Completo del Candidato"</strong> en lugar de <strong>"name"</strong>, 
-                                            ingresa ese nombre exacto en el campo "Nombre" de abajo.
+                                            <strong> &quot;Nombre Completo del Candidato&quot;</strong> en lugar de <strong>&quot;name&quot;</strong>, 
+                                            ingresa ese nombre exacto en el campo correspondiente de abajo.
                                         </p>
                                         <p className="text-xs text-blue-800">
-                                            <strong>Deja en blanco</strong> para usar el mapeo automático (el sistema intentará 
-                                            encontrar el campo usando nombres comunes).
+                                            <strong>Deja en blanco</strong> para usar el mapeo automático.
+                                        </p>
+                                        <p className="text-xs text-blue-700 font-medium pt-1">
+                                            {candidateFields.length} campos del proceso — desplázate para ver todos
                                         </p>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto p-2 bg-white rounded border border-blue-100">
-                                        {candidateFields.map(field => (
-                                            <div key={field.key} className="space-y-1">
-                                                <label className="block text-xs font-semibold text-gray-700">
-                                                    {field.label} <span className="text-gray-400 font-normal">→</span>
-                                                </label>
+                                    <div
+                                        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4"
+                                        style={{ maxHeight: 'min(50vh, 420px)' }}
+                                        onKeyDownCapture={stopSpaceScrollInInputs}
+                                    >
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-2 bg-white rounded border border-blue-100">
+                                            {candidateFields.map(field => (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="block text-xs font-semibold text-gray-700">
+                                                        {field.label} <span className="text-gray-400 font-normal">→</span>
+                                                    </label>
                                                 <input
                                                     type="text"
-                                                    value={fieldMapping[field.key] || ''}
+                                                    autoComplete="off"
+                                                    spellCheck={false}
+                                                    value={fieldMapping[field.key] ?? ''}
                                                     onChange={e => {
-                                                        const newMapping = { ...fieldMapping };
-                                                        if (e.target.value.trim()) {
-                                                            newMapping[field.key] = e.target.value.trim();
-                                                        } else {
-                                                            delete newMapping[field.key];
-                                                        }
-                                                        setFieldMapping(newMapping);
+                                                        const v = e.target.value;
+                                                        setFieldMapping(prev => {
+                                                            const next = { ...prev };
+                                                            if (v) next[field.key] = v;
+                                                            else delete next[field.key];
+                                                            return next;
+                                                        });
                                                     }}
+                                                    onKeyDown={stopSpaceScrollInInputs}
+                                                    onKeyDownCapture={stopSpaceScrollInInputs}
                                                     placeholder={field.placeholder}
                                                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                                                 />
                                                 <p className="text-xs text-gray-500">
-                                                    Nombre exacto del campo en Tally
+                                                    Label exacto del campo en Tally (respete mayúsculas y espacios)
                                                 </p>
-                                            </div>
-                                        ))}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                     {Object.keys(fieldMapping).length > 0 && (
-                                        <div className="mt-3 pt-3 border-t border-blue-200">
+                                        <div className="flex-shrink-0 px-4 py-3 border-t border-blue-200 bg-blue-50">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-xs text-blue-800">
                                                     <strong>{Object.keys(fieldMapping).length}</strong> campo(s) mapeado(s) personalmente

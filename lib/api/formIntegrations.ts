@@ -39,14 +39,12 @@ function formIntegrationToDb(integration: Partial<FormIntegration>): any {
     if (integration.formIdOrUrl !== undefined) dbIntegration.form_id_or_url = integration.formIdOrUrl;
     if (integration.processId !== undefined) dbIntegration.process_id = integration.processId;
     if (integration.webhookUrl !== undefined) dbIntegration.webhook_url = integration.webhookUrl;
-    // Incluir field_mapping incluso si viene vacío para permitir limpiar mapeos existentes.
-    if (integration.fieldMapping !== undefined) {
-        dbIntegration.field_mapping =
-            integration.fieldMapping &&
-            typeof integration.fieldMapping === 'object' &&
-            Object.keys(integration.fieldMapping).length > 0
-                ? integration.fieldMapping
-                : null;
+    // Solo incluir field_mapping si existe y tiene al menos una propiedad
+    if (integration.fieldMapping !== undefined && 
+        integration.fieldMapping !== null &&
+        typeof integration.fieldMapping === 'object' &&
+        Object.keys(integration.fieldMapping).length > 0) {
+        dbIntegration.field_mapping = JSON.stringify(integration.fieldMapping);
     }
     return dbIntegration;
 }
@@ -189,12 +187,11 @@ export const formIntegrationsApi = {
         
         // Separar field_mapping para manejarlo por separado
         const { field_mapping, ...standardFields } = dbData;
-        const updateData = { ...standardFields, app_name: APP_NAME };
         
         // Actualizar campos estándar primero
         const { data, error } = await supabase
             .from('form_integrations')
-            .update(updateData)
+            .update(standardFields)
             .eq('id', id)
             .eq('app_name', APP_NAME)
             .select()

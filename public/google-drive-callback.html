@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conectando Google Drive...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4285f4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .message {
+            color: #333;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <div class="message">Conectando con Google Drive...</div>
+    </div>
+    <script>
+        (function() {
+            console.log('🔵 Google Drive Callback Handler iniciado');
+            
+            // Leer parámetros de la URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const driveConnected = urlParams.get('drive_connected');
+            const accessToken = urlParams.get('access_token');
+            const refreshToken = urlParams.get('refresh_token');
+            const tokenExpiry = urlParams.get('expires_in');
+            const userEmail = urlParams.get('user_email');
+            const userName = urlParams.get('user_name');
+            const rootFolderId = urlParams.get('root_folder_id');
+            const rootFolderName = urlParams.get('root_folder_name');
+            const error = urlParams.get('error');
+            const errorMessage = urlParams.get('message');
+
+            console.log('📋 Parámetros encontrados:', {
+                driveConnected,
+                hasAccessToken: !!accessToken,
+                hasRefreshToken: !!refreshToken,
+                userEmail,
+                error
+            });
+
+            // Si hay error, enviarlo a la ventana principal
+            if (error) {
+                console.error('❌ Error en OAuth:', error, errorMessage);
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({
+                        type: 'GOOGLE_DRIVE_AUTH_ERROR',
+                        error: error,
+                        message: errorMessage
+                    }, window.location.origin);
+                }
+                setTimeout(() => window.close(), 2000);
+                return;
+            }
+
+            // Si tenemos los datos necesarios
+            if (driveConnected === 'true' && accessToken) {
+                const messageData = {
+                    type: 'GOOGLE_DRIVE_AUTH_SUCCESS',
+                    accessToken,
+                    refreshToken,
+                    tokenExpiry,
+                    userInfo: {
+                        email: userEmail,
+                        name: userName,
+                    },
+                    rootFolderId,
+                    rootFolderName,
+                };
+
+                console.log('📤 Enviando mensaje a ventana principal:', messageData);
+                console.log('📍 Origen:', window.location.origin);
+
+                // Intentar enviar mensaje a la ventana principal
+                if (window.opener && !window.opener.closed) {
+                    try {
+                        window.opener.postMessage(messageData, window.location.origin);
+                        console.log('✅ Mensaje enviado exitosamente');
+                        
+                        // Cerrar el popup después de un breve delay
+                        setTimeout(() => {
+                            console.log('🔴 Cerrando popup...');
+                            window.close();
+                        }, 500);
+                    } catch (error) {
+                        console.error('❌ Error enviando mensaje:', error);
+                        // Si falla, intentar redirigir la ventana principal
+                        const redirectUrl = new URL(window.location.href);
+                        redirectUrl.pathname = '/settings';
+                        redirectUrl.search = window.location.search;
+                        window.opener.location.href = redirectUrl.toString();
+                        setTimeout(() => window.close(), 1000);
+                    }
+                } else {
+                    console.warn('⚠️ window.opener no está disponible, redirigiendo...');
+                    // Si no hay opener, redirigir a settings con los parámetros
+                    const redirectUrl = new URL(window.location.href);
+                    redirectUrl.pathname = '/settings';
+                    window.location.href = redirectUrl.toString();
+                }
+            } else {
+                console.warn('⚠️ Parámetros incompletos o inválidos');
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({
+                        type: 'GOOGLE_DRIVE_AUTH_ERROR',
+                        error: 'missing_parameters',
+                        message: 'Faltan parámetros necesarios para la conexión'
+                    }, window.location.origin);
+                }
+                setTimeout(() => window.close(), 2000);
+            }
+        })();
+    </script>
+</body>
+</html>
+

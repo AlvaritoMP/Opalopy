@@ -2,6 +2,7 @@
 // Nota: Para producción, el OAuth debe manejarse en un backend por seguridad
 
 import { GoogleDriveConfig } from '../types';
+import { debugLog, debugWarn } from './debugLog';
 
 // URL del backend API
 // Configura VITE_API_URL en .env.local para producción
@@ -28,12 +29,46 @@ export interface GoogleDriveFolder {
 class GoogleDriveService {
     private accessToken: string | null = null;
     private refreshToken: string | null = null;
+    private tokenExpiry: Date | null = null;
+    private onTokenUpdate: ((accessToken: string, refreshToken?: string, expiresIn?: number) => void) | null = null;
+
+    // Establecer callback para actualizar tokens en settings cuando se refrescan
+    setTokenUpdateCallback(callback: (accessToken: string, refreshToken?: string, expiresIn?: number) => void) {
+        this.onTokenUpdate = callback;
+    }
 
     // Inicializar con tokens guardados
-    initialize(config: GoogleDriveConfig | undefined) {
+    async initialize(config: GoogleDriveConfig | undefined) {
         if (config?.connected && config.accessToken) {
             this.accessToken = config.accessToken;
             this.refreshToken = config.refreshToken || null;
+            
+            debugLog('Inicializando GoogleDriveService');
+            
+            if (config.tokenExpiry) {
+                this.tokenExpiry = new Date(config.tokenExpiry);
+                const now = new Date();
+                const timeUntilExpiry = this.tokenExpiry.getTime() - now.getTime();
+                if (this.tokenExpiry <= now || timeUntilExpiry < 5 * 60 * 1000) {
+                    debugLog('Token de Google Drive expirado o próximo a expirar, refrescando...');
+                    if (!this.refreshToken) {
+                        console.error('No se puede refrescar: no hay refresh token guardado');
+                        throw new Error('No hay refresh token disponible. Por favor, reconecta tu cuenta de Google Drive.');
+                    }
+                    try {
+                        await this.refreshAccessToken();
+                    } catch (error) {
+                        console.error('Error refrescando token al inicializar:', error);
+                        this.accessToken = null;
+                        this.refreshToken = null;
+                        throw error;
+                    }
+                }
+            } else if (!this.refreshToken) {
+                debugWarn('No hay refresh token guardado. El token puede expirar sin poder refrescarse.');
+            }
+        } else {
+            debugLog('Google Drive no está configurado o no hay access token');
         }
     }
 
@@ -300,7 +335,7 @@ class GoogleDriveService {
                         const folder = await checkResponse.json();
                         // Verificar que no esté en papelera y que esté en la carpeta correcta del proceso
                         if (!folder.trashed && folder.parents && folder.parents.includes(processFolderId)) {
-                            console.log(`✅ Carpeta existente encontrada: ${folder.name} (${folder.id})`);
+                            debugLog(`Carpeta existente encontrada: ${folder.name}`);
                             return folder as GoogleDriveFolder;
                         }
                     }
@@ -362,13 +397,13 @@ class GoogleDriveService {
                     : null;
                 
                 if (matchingFolder) {
-                    console.log(`✅ Carpeta encontrada (coincide con guardada): ${matchingFolder.name} (${matchingFolder.id})`);
+                    debugLog(`Carpeta encontrada (coincide con guardada): ${matchingFolder.name}`);
                     return matchingFolder as GoogleDriveFolder;
                 }
                 
                 // Si hay múltiples, buscar la que tenga más contenido (archivos)
                 if (data.files.length > 1) {
-                    console.log(`⚠️ Múltiples carpetas encontradas para "${candidateName}", buscando la que tenga más archivos...`);
+                    debugLog(`Múltiples carpetas para "${candidateName}", eligiendo la con más archivos...`);
                     const foldersWithContent = await Promise.all(
                         data.files.map(async (folder: any) => {
                             try {
@@ -397,18 +432,18 @@ class GoogleDriveService {
                     // Ordenar por cantidad de archivos (mayor primero) y usar la primera
                     foldersWithContent.sort((a, b) => b.fileCount - a.fileCount);
                     const bestFolder = foldersWithContent[0].folder;
-                    console.log(`✅ Carpeta seleccionada (tiene ${foldersWithContent[0].fileCount} archivos): ${bestFolder.name} (${bestFolder.id})`);
+                    debugLog(`Carpeta seleccionada (${foldersWithContent[0].fileCount} archivos): ${bestFolder.name}`);
                     return bestFolder as GoogleDriveFolder;
                 }
                 
                 // Si solo hay una, usarla
                 const folderToUse = data.files[0];
-                console.log(`✅ Carpeta encontrada por nombre: ${folderToUse.name} (${folderToUse.id})`);
+                debugLog(`Carpeta encontrada por nombre: ${folderToUse.name}`);
                 return folderToUse as GoogleDriveFolder;
             }
 
             // Crear carpeta solo si no existe ninguna
-            console.log(`📁 Creando nueva carpeta para candidato: ${sanitizedName}`);
+            debugLog(`Creando carpeta para candidato: ${sanitizedName}`);
             return await this.createFolder(sanitizedName, processFolderId);
         } catch (error) {
             console.error('Error obteniendo/creando carpeta de candidato:', error);
@@ -561,33 +596,66 @@ class GoogleDriveService {
     // Refrescar token de acceso
     private async refreshAccessToken(): Promise<void> {
         if (!this.refreshToken) {
+            console.error('❌ No hay refresh token disponible. Refresh token:', this.refreshToken);
             throw new Error('No hay refresh token disponible. Por favor, reconecta tu cuenta de Google Drive.');
         }
 
         try {
+            debugLog('Refrescando token de Google Drive...');
             // En producción, esto debe hacerse en el backend por seguridad
+            // El backend espera 'refresh_token' (snake_case), no 'refreshToken'
             const response = await fetch(`${API_BASE_URL}/api/auth/google/refresh`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ refreshToken: this.refreshToken }),
+                body: JSON.stringify({ refresh_token: this.refreshToken }),
             });
 
             if (!response.ok) {
-                throw new Error('Error al refrescar token');
+                const errorText = await response.text();
+                console.error('❌ Error del backend al refrescar token:', response.status, errorText);
+                let errorMessage = 'Error al refrescar token';
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch (e) {
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(errorMessage);
             }
 
             const data = await response.json();
-            this.accessToken = data.accessToken;
-            if (data.refreshToken) {
-                this.refreshToken = data.refreshToken;
+            this.accessToken = data.access_token || data.accessToken;
+            
+            // Actualizar refresh token si se proporciona uno nuevo
+            if (data.refresh_token || data.refreshToken) {
+                this.refreshToken = data.refresh_token || data.refreshToken;
             }
+            
+            // Actualizar fecha de expiración
+            if (data.expires_in) {
+                this.tokenExpiry = new Date(Date.now() + data.expires_in * 1000);
+            } else if (data.expiry_date) {
+                this.tokenExpiry = new Date(data.expiry_date);
+            }
+            
+            // Notificar callback para actualizar settings
+            if (this.onTokenUpdate) {
+                this.onTokenUpdate(
+                    this.accessToken,
+                    this.refreshToken || undefined,
+                    data.expires_in
+                );
+            }
+            
+            debugLog('Token de Google Drive refrescado');
         } catch (error) {
             console.error('Error refrescando token:', error);
             // Limpiar tokens si falla
             this.accessToken = null;
             this.refreshToken = null;
+            this.tokenExpiry = null;
             throw error;
         }
     }

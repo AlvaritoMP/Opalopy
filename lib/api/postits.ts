@@ -12,7 +12,7 @@ export const postItsApi = {
                 text: postIt.text,
                 color: postIt.color,
                 created_by: postIt.createdBy,
-                app_name: APP_NAME,
+                app_name: APP_NAME, // Agregar app_name para multi-tenant
             })
             .select()
             .single();
@@ -34,7 +34,7 @@ export const postItsApi = {
             .from('post_its')
             .delete()
             .eq('id', postItId)
-            .eq('app_name', APP_NAME);
+            .eq('app_name', APP_NAME); // Filtrar por app_name para multi-tenant
         
         if (error) throw error;
     },

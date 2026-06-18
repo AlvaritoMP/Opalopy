@@ -1,4 +1,5 @@
 // Utilidades para generar archivos de calendario (.ics) y enviar invitaciones
+import { openMailCompose } from './openMailto';
 
 /**
  * Genera un archivo .ics (iCalendar) para agregar el evento al calendario
@@ -226,11 +227,11 @@ Equipo de Reclutamiento`;
 
   // Esperar un momento para que se complete la descarga antes de abrir el email
   setTimeout(() => {
-    // Generar mailto link
-    const mailtoLink = generateMailtoLink(validEmails, subject, emailBody);
-    
-    // Abrir cliente de email
-    window.location.href = mailtoLink;
+    void openMailCompose({
+      to: validEmails,
+      subject,
+      body: emailBody,
+    });
   }, 500);
   
   // Mostrar mensaje informativo con instrucciones

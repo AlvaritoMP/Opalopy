@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Opalopy">
+  <defs>
+    <linearGradient id="opalo-bg" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#opalo-bg)"/>
+  <!-- Candidato -->
+  <circle cx="11.5" cy="10.5" r="3.6" fill="#ffffff"/>
+  <path fill="#ffffff" d="M5.2 25.8c0-4.4 2.8-6.8 6.3-6.8s6.3 2.4 6.3 6.8"/>
+  <!-- Selecci�n / aprobado -->
+  <circle cx="23.2" cy="21" r="6.2" fill="#ffffff"/>
+  <path
+    d="M20.4 21.1l1.9 1.9 4.1-4.4"
+    fill="none"
+    stroke="#2563eb"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

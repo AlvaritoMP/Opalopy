@@ -1,5 +1,7 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "caddy"]
+nixPkgs = ["nodejs_20"]
+# No incluir "caddy" aquí: Nixpacks lo instala solo al detectar Caddyfile.
+# Tenerlo en ambos sitios provoca conflicto de versiones en el build de Docker.
 
 [phases.install]
 cmds = ["npm ci"]

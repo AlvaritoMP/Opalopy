@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { AppSettings } from '../../types';
 import { APP_NAME } from '../appConfig';
 import { getSettings } from '../settings';
+import { debugLog, debugWarn } from '../debugLog';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -22,6 +23,17 @@ function dbToSettings(dbSettings: any): AppSettings {
         candidateSources: dbSettings.candidate_sources || undefined,
         provinces: dbSettings.provinces || undefined,
         districts: dbSettings.districts || undefined,
+        interviewLocations: dbSettings.interview_locations || undefined,
+        transportFares: dbSettings.transport_fares
+            ? typeof dbSettings.transport_fares === 'string'
+                ? JSON.parse(dbSettings.transport_fares)
+                : dbSettings.transport_fares
+            : undefined,
+        psycholaboralInventory: dbSettings.psycholaboral_inventory
+            ? typeof dbSettings.psycholaboral_inventory === 'string'
+                ? JSON.parse(dbSettings.psycholaboral_inventory)
+                : dbSettings.psycholaboral_inventory
+            : undefined,
     };
 }
 
@@ -59,6 +71,11 @@ function settingsToDb(settings: Partial<AppSettings>): any {
     if (settings.candidateSources !== undefined) dbSettings.candidate_sources = settings.candidateSources;
     if (settings.provinces !== undefined) dbSettings.provinces = settings.provinces;
     if (settings.districts !== undefined) dbSettings.districts = settings.districts;
+    if (settings.interviewLocations !== undefined) dbSettings.interview_locations = settings.interviewLocations;
+    if (settings.transportFares !== undefined) dbSettings.transport_fares = settings.transportFares;
+    if (settings.psycholaboralInventory !== undefined) {
+        dbSettings.psycholaboral_inventory = settings.psycholaboralInventory;
+    }
     return dbSettings;
 }
 
@@ -210,13 +227,12 @@ export const settingsApi = {
     // Actualizar configuración
     async update(settings: Partial<AppSettings>): Promise<AppSettings> {
         const dbData = settingsToDb(settings);
-        console.log('settingsApi.update - dbData:', JSON.stringify(dbData, null, 2));
+        debugLog('settingsApi.update - dbData keys:', Object.keys(dbData));
         
         // Primero obtener la configuración actual para hacer merge
         const current = await this.get();
         const mergedSettings = { ...current, ...settings };
         const mergedDbData = settingsToDb(mergedSettings);
-        console.log('settingsApi.update - mergedDbData:', JSON.stringify(mergedDbData, null, 2));
         
         // Verificar si existe un registro (la tabla solo permite uno con ID específico)
         const { data: existingData, error: checkError } = await supabase
@@ -226,22 +242,21 @@ export const settingsApi = {
         
         // Si no existe ningún registro, crear uno
         if (!existingData || checkError?.code === 'PGRST116') {
-            console.log('⚠️ No existe registro de settings, creando uno nuevo...');
+            debugLog('No existe registro de settings, creando uno nuevo...');
             try {
                 const created = await this.create(mergedSettings);
-                console.log('✅ Settings creados exitosamente');
+                debugLog('Settings creados exitosamente');
                 return created;
             } catch (createError: any) {
                 console.error('Error creating settings:', createError);
                 // Si falla la creación, intentar actualizar de todas formas
             }
         } else if (existingData.app_name !== APP_NAME) {
-            // Si existe pero tiene app_name diferente, actualizarlo
-            console.log(`⚠️ Registro existe pero con app_name = '${existingData.app_name}', actualizando a '${APP_NAME}'...`);
+            debugLog(`Registro settings app_name '${existingData.app_name}' → '${APP_NAME}'`);
         }
         
         // Separar campos opcionales que pueden no existir en el esquema
-        const { candidate_sources, provinces, districts, powered_by_logo_url, ...standardFields } = mergedDbData;
+        const { candidate_sources, provinces, districts, interview_locations, powered_by_logo_url, ...standardFields } = mergedDbData;
         
         // No permitir cambiar app_name
         delete standardFields.app_name;
@@ -257,7 +272,7 @@ export const settingsApi = {
             console.error('Error updating standard settings fields:', standardError);
             // Si el error es que no existe el registro, intentar crear
             if (standardError.code === 'PGRST116' || standardError.message?.includes('No rows')) {
-                console.log('⚠️ No se encontró registro para actualizar, creando uno nuevo...');
+                debugLog('No se encontró registro para actualizar, creando uno nuevo...');
                 try {
                     const created = await this.create(mergedSettings);
                     return created;
@@ -271,7 +286,7 @@ export const settingsApi = {
         
         // Verificar que se actualizó al menos una fila
         if (!updatedData || updatedData.length === 0) {
-            console.warn('⚠️ No se actualizó ninguna fila, creando registro nuevo...');
+            debugWarn('No se actualizó ninguna fila de settings, creando registro nuevo...');
             try {
                 const created = await this.create(mergedSettings);
                 return created;
@@ -286,6 +301,7 @@ export const settingsApi = {
         if (candidate_sources !== undefined) optionalFields.candidate_sources = candidate_sources;
         if (provinces !== undefined) optionalFields.provinces = provinces;
         if (districts !== undefined) optionalFields.districts = districts;
+        if (interview_locations !== undefined) optionalFields.interview_locations = interview_locations;
         if (powered_by_logo_url !== undefined) optionalFields.powered_by_logo_url = powered_by_logo_url;
         
         if (Object.keys(optionalFields).length > 0) {
@@ -317,7 +333,7 @@ export const settingsApi = {
             console.error('Error fetching updated settings:', fetchError);
             // Si no se encuentra, intentar crear
             if (fetchError.code === 'PGRST116') {
-                console.log('⚠️ No se encontró registro después de actualizar, creando uno nuevo...');
+                debugLog('No se encontró registro después de actualizar settings, creando uno nuevo...');
                 try {
                     const created = await this.create(mergedSettings);
                     return created;
@@ -330,7 +346,7 @@ export const settingsApi = {
         }
         
         const result = dbToSettings(data);
-        console.log('✅ Settings actualizados exitosamente:', JSON.stringify(result.googleDrive, null, 2));
+        debugLog('Settings actualizados');
         return result;
     },
 };

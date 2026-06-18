@@ -206,7 +206,7 @@ export const GoogleDriveSettings: React.FC<GoogleDriveSettingsProps> = ({ config
             
             // Verificar que el mensaje viene del mismo origen O del backend (el popup puede enviar desde el backend)
             const frontendOrigin = window.location.origin;
-            const backendOrigin = frontendOrigin.replace(/^https?:\/\/([^.]+)\./, 'https://opalo-ats-backend.');
+            const backendOrigin = frontendOrigin.replace(/^https?:\/\/([^.]+)\./, 'https://opalopy-backend.');
             const allowedOrigins = [frontendOrigin, backendOrigin];
             
             // También permitir cualquier origen de easypanel.host para desarrollo

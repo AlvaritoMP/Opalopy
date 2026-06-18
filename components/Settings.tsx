@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppState } from '../App';
-import { AppSettings } from '../types';
-import { Save, Database, HardDrive, Globe, Brush, Type } from 'lucide-react';
+import { AppSettings, Client, InterviewLocation } from '../types';
+import { Save, Database, HardDrive, Globe, Brush, Type, Building2, Plus, Trash2, Edit2, MapPin } from 'lucide-react';
 import { GoogleDriveSettings } from './GoogleDriveSettings';
+import { clientsApi } from '../lib/api';
 
 const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -18,11 +19,156 @@ export const Settings: React.FC = () => {
     const { state, actions } = useAppState();
     const [settings, setSettings] = useState<AppSettings | null>(state.settings);
     const [isSaving, setIsSaving] = useState(false);
+    const [clients, setClients] = useState<Client[]>([]);
+    const [isLoadingClients, setIsLoadingClients] = useState(false);
+    const [showClientModal, setShowClientModal] = useState(false);
+    const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [clientRazonSocial, setClientRazonSocial] = useState('');
+    const [clientRuc, setClientRuc] = useState('');
     const logoInputRef = useRef<HTMLInputElement>(null);
+    const [editingInterviewLocation, setEditingInterviewLocation] = useState<InterviewLocation | null>(null);
+    const [interviewLocationName, setInterviewLocationName] = useState('');
+    const [interviewLocationAddress, setInterviewLocationAddress] = useState('');
+    const [showInterviewLocationForm, setShowInterviewLocationForm] = useState(false);
 
     useEffect(() => {
         setSettings(state.settings);
     }, [state.settings]);
+
+    useEffect(() => {
+        loadClients();
+    }, []);
+
+    const loadClients = async () => {
+        setIsLoadingClients(true);
+        try {
+            const allClients = await clientsApi.getAll();
+            setClients(allClients);
+        } catch (error: any) {
+            console.error('Error cargando clientes:', error);
+            alert('Error al cargar clientes: ' + error.message);
+        } finally {
+            setIsLoadingClients(false);
+        }
+    };
+
+    const handleOpenClientModal = (client?: Client) => {
+        if (client) {
+            setEditingClient(client);
+            setClientRazonSocial(client.razonSocial);
+            setClientRuc(client.ruc);
+        } else {
+            setEditingClient(null);
+            setClientRazonSocial('');
+            setClientRuc('');
+        }
+        setShowClientModal(true);
+    };
+
+    const handleCloseClientModal = () => {
+        setShowClientModal(false);
+        setEditingClient(null);
+        setClientRazonSocial('');
+        setClientRuc('');
+    };
+
+    const handleSaveClient = async () => {
+        if (!clientRazonSocial.trim() || !clientRuc.trim()) {
+            alert('Por favor completa todos los campos');
+            return;
+        }
+
+        try {
+            if (editingClient) {
+                await clientsApi.update(editingClient.id, {
+                    razonSocial: clientRazonSocial.trim(),
+                    ruc: clientRuc.trim(),
+                });
+            } else {
+                await clientsApi.create({
+                    razonSocial: clientRazonSocial.trim(),
+                    ruc: clientRuc.trim(),
+                });
+            }
+            await loadClients();
+            handleCloseClientModal();
+        } catch (error: any) {
+            console.error('Error guardando cliente:', error);
+            alert('Error al guardar cliente: ' + error.message);
+        }
+    };
+
+    const handleDeleteClient = async (id: string) => {
+        if (!confirm('¿Estás seguro de que deseas eliminar este cliente?')) {
+            return;
+        }
+
+        try {
+            await clientsApi.delete(id);
+            await loadClients();
+        } catch (error: any) {
+            console.error('Error eliminando cliente:', error);
+            alert('Error al eliminar cliente: ' + error.message);
+        }
+    };
+
+    const resetInterviewLocationForm = () => {
+        setEditingInterviewLocation(null);
+        setInterviewLocationName('');
+        setInterviewLocationAddress('');
+        setShowInterviewLocationForm(false);
+    };
+
+    const handleOpenInterviewLocationForm = (location?: InterviewLocation) => {
+        if (location) {
+            setEditingInterviewLocation(location);
+            setInterviewLocationName(location.name);
+            setInterviewLocationAddress(location.address);
+        } else {
+            setEditingInterviewLocation(null);
+            setInterviewLocationName('');
+            setInterviewLocationAddress('');
+        }
+        setShowInterviewLocationForm(true);
+    };
+
+    const handleSaveInterviewLocation = () => {
+        if (!settings) return;
+        if (!interviewLocationName.trim() || !interviewLocationAddress.trim()) {
+            alert('Complete el nombre y la dirección de la sede');
+            return;
+        }
+
+        const locations = [...(settings.interviewLocations || [])];
+        if (editingInterviewLocation) {
+            const index = locations.findIndex(l => l.id === editingInterviewLocation.id);
+            if (index >= 0) {
+                locations[index] = {
+                    ...editingInterviewLocation,
+                    name: interviewLocationName.trim(),
+                    address: interviewLocationAddress.trim(),
+                };
+            }
+        } else {
+            locations.push({
+                id: `loc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                name: interviewLocationName.trim(),
+                address: interviewLocationAddress.trim(),
+            });
+        }
+
+        setSettings({ ...settings, interviewLocations: locations });
+        resetInterviewLocationForm();
+    };
+
+    const handleDeleteInterviewLocation = (id: string) => {
+        if (!settings) return;
+        if (!confirm('¿Eliminar esta sede de entrevista?')) return;
+        setSettings({
+            ...settings,
+            interviewLocations: (settings.interviewLocations || []).filter(l => l.id !== id),
+        });
+    };
 
     if (!settings) {
         return null; // Or a loading state
@@ -204,6 +350,90 @@ export const Settings: React.FC = () => {
                                 placeholder="Confidencial - Solo para uso interno"
                             />
                         </div>
+                        <div className="md:col-span-2 border-t border-gray-100 pt-4 mt-2">
+                            <h3 className="text-sm font-semibold text-gray-800 mb-2">Informe psicolaboral (PDF)</h3>
+                            <p className="text-xs text-gray-500 mb-3">
+                                Personalice la portada visual y el mensaje de apertura. Si no sube imagen, se usa la foto del proceso masivo o una imagen profesional predeterminada.
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Imagen de portada (opcional)</label>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="mt-1 block w-full text-sm"
+                                        onChange={async e => {
+                                            const f = e.target.files?.[0];
+                                            if (!f || !f.type.startsWith('image/')) return;
+                                            const reader = new FileReader();
+                                            reader.onload = () => {
+                                                const dataUrl = reader.result as string;
+                                                setSettings({
+                                                    ...settings,
+                                                    reportTheme: {
+                                                        ...(settings.reportTheme || {}),
+                                                        psycholaboralHeroImageUrl: dataUrl,
+                                                    },
+                                                });
+                                            };
+                                            reader.readAsDataURL(f);
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="mt-2 text-xs text-red-600 hover:underline"
+                                        onClick={() =>
+                                            setSettings({
+                                                ...settings,
+                                                reportTheme: {
+                                                    ...(settings.reportTheme || {}),
+                                                    psycholaboralHeroImageUrl: undefined,
+                                                },
+                                            })
+                                        }
+                                    >
+                                        Quitar imagen de portada
+                                    </button>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Mensaje de apertura (opcional)</label>
+                                    <textarea
+                                        rows={4}
+                                        value={settings.reportTheme?.psycholaboralIntroText || ''}
+                                        onChange={e =>
+                                            setSettings({
+                                                ...settings,
+                                                reportTheme: {
+                                                    ...(settings.reportTheme || {}),
+                                                    psycholaboralIntroText: e.target.value || undefined,
+                                                },
+                                            })
+                                        }
+                                        className="mt-1 block w-full input text-sm"
+                                        placeholder="Texto breve que invita a leer el informe completo..."
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700">Mensaje de cierre (opcional)</label>
+                                    <textarea
+                                        rows={2}
+                                        value={settings.reportTheme?.psycholaboralClosingText || ''}
+                                        onChange={e =>
+                                            setSettings({
+                                                ...settings,
+                                                reportTheme: {
+                                                    ...(settings.reportTheme || {}),
+                                                    psycholaboralClosingText: e.target.value || undefined,
+                                                },
+                                            })
+                                        }
+                                        className="mt-1 block w-full input text-sm"
+                                        placeholder="Frase breve antes del pie legal..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -227,6 +457,158 @@ export const Settings: React.FC = () => {
                             <p className="mt-1 text-xs text-gray-500">Escribe una opción por línea. Puedes agregar, editar o eliminar opciones. Para eliminar una opción, simplemente bórrala de la lista.</p>
                         </div>
                     </div>
+                </div>
+
+                {/* Clients Management */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 className="text-xl font-semibold mb-1 flex items-center"><Building2 className="mr-2"/> Clientes</h2>
+                            <p className="text-sm text-gray-500">Gestiona los clientes que pueden ser asignados a los procesos.</p>
+                        </div>
+                        <button
+                            onClick={() => handleOpenClientModal()}
+                            className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"
+                        >
+                            <Plus className="w-4 h-4 mr-2" /> Nuevo Cliente
+                        </button>
+                    </div>
+                    {isLoadingClients ? (
+                        <div className="text-center py-8 text-gray-500">Cargando clientes...</div>
+                    ) : clients.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                            <Building2 className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <p>No hay clientes registrados</p>
+                            <p className="text-sm">Haz clic en "Nuevo Cliente" para agregar uno</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {clients.map(client => (
+                                <div key={client.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-md hover:bg-gray-50">
+                                    <div>
+                                        <div className="font-medium text-gray-900">{client.razonSocial}</div>
+                                        <div className="text-sm text-gray-500">RUC: {client.ruc}</div>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <button
+                                            onClick={() => handleOpenClientModal(client)}
+                                            className="p-2 text-gray-600 hover:text-primary-600 hover:bg-primary-50 rounded-md"
+                                            title="Editar"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteClient(client.id)}
+                                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md"
+                                            title="Eliminar"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Sedes de entrevista (rutas en transporte público) */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 className="text-xl font-semibold mb-1 flex items-center"><MapPin className="mr-2"/> Sedes de entrevista</h2>
+                            <p className="text-sm text-gray-500">
+                                Puntos de destino para generar rutas en transporte público desde la ficha de candidatos en procesos normales.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => handleOpenInterviewLocationForm()}
+                            className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700"
+                        >
+                            <Plus className="w-4 h-4 mr-2" /> Nueva sede
+                        </button>
+                    </div>
+
+                    {showInterviewLocationForm && (
+                        <div className="mb-4 p-4 border border-primary-100 bg-primary-50/40 rounded-lg space-y-3">
+                            <h3 className="text-sm font-semibold text-gray-800">
+                                {editingInterviewLocation ? 'Editar sede' : 'Nueva sede'}
+                            </h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                                <input
+                                    type="text"
+                                    value={interviewLocationName}
+                                    onChange={(e) => setInterviewLocationName(e.target.value)}
+                                    placeholder="Ej: Sede Miraflores"
+                                    className="w-full input"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
+                                <input
+                                    type="text"
+                                    value={interviewLocationAddress}
+                                    onChange={(e) => setInterviewLocationAddress(e.target.value)}
+                                    placeholder="Ej: Av. Javier Prado 4200, San Isidro, Lima"
+                                    className="w-full input"
+                                />
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveInterviewLocation}
+                                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
+                                >
+                                    {editingInterviewLocation ? 'Guardar' : 'Agregar'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={resetInterviewLocationForm}
+                                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {(settings.interviewLocations || []).length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                            <MapPin className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <p>No hay sedes configuradas</p>
+                            <p className="text-sm">Agregue los puntos donde se realizan entrevistas</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {(settings.interviewLocations || []).map(location => (
+                                <div key={location.id} className="flex items-start justify-between p-3 border border-gray-200 rounded-md hover:bg-gray-50">
+                                    <div>
+                                        <div className="font-medium text-gray-900">{location.name}</div>
+                                        <div className="text-sm text-gray-500">{location.address}</div>
+                                    </div>
+                                    <div className="flex items-center space-x-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleOpenInterviewLocationForm(location)}
+                                            className="p-2 text-gray-600 hover:text-primary-600 hover:bg-primary-50 rounded-md"
+                                            title="Editar"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteInterviewLocation(location.id)}
+                                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md"
+                                            title="Eliminar"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Provinces and Districts Settings */}
@@ -428,6 +810,59 @@ export const Settings: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Modal para crear/editar cliente */}
+            {showClientModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+                        <div className="p-6">
+                            <h3 className="text-xl font-semibold mb-4">
+                                {editingClient ? 'Editar Cliente' : 'Nuevo Cliente'}
+                            </h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Razón Social *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={clientRazonSocial}
+                                        onChange={e => setClientRazonSocial(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        placeholder="Ej: Empresa S.A.C."
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        RUC *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={clientRuc}
+                                        onChange={e => setClientRuc(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        placeholder="Ej: 20123456789"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex justify-end space-x-3 mt-6">
+                                <button
+                                    onClick={handleCloseClientModal}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleSaveClient}
+                                    className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                                >
+                                    {editingClient ? 'Actualizar' : 'Crear'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`.input { padding: 0.5rem 0.75rem; border: 1px solid #D1D5DB; border-radius: 0.375rem; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }`}</style>
         </div>

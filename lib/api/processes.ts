@@ -1,19 +1,192 @@
 import { supabase } from '../supabase';
 import { Process, Stage, DocumentCategory, Attachment } from '../../types';
 import { APP_NAME } from '../appConfig';
+import { applyStageColorsFromBulkConfig } from '../stageColors';
+
+const STAGE_LIST_FIELDS = 'id, process_id, name, order_index, required_documents, is_critical, color';
+
+function isMissingColumnError(error: any, columnName?: string): boolean {
+    if (!error) return false;
+    if (error.code === '42703') return true;
+    const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+    if (message.includes('schema cache') || message.includes('column')) {
+        return columnName ? message.includes(columnName.toLowerCase()) : true;
+    }
+    return false;
+}
+
+async function fetchStagesByProcessId(processId: string) {
+    const base = () =>
+        supabase
+            .from('stages')
+            .select('id, name, order_index, required_documents, is_critical, color')
+            .eq('process_id', processId)
+            .order('order_index');
+
+    let result = await base();
+    if (result.error && isMissingColumnError(result.error, 'color')) {
+        result = await supabase
+            .from('stages')
+            .select('id, name, order_index, required_documents, is_critical')
+            .eq('process_id', processId)
+            .order('order_index');
+        if (!result.error) {
+            return (result.data || []).map(s => ({ ...s, color: null }));
+        }
+    }
+
+    if (result.error) throw result.error;
+    return result.data || [];
+}
+
+async function fetchStagesBatch(processIds: string[]) {
+    if (processIds.length === 0) return [];
+
+    const runQuery = (fields: string, withAppName: boolean) => {
+        let q = supabase
+            .from('stages')
+            .select(fields)
+            .in('process_id', processIds)
+            .order('process_id, order_index');
+        if (withAppName) q = q.eq('app_name', APP_NAME);
+        return q;
+    };
+
+    let result = await runQuery(STAGE_LIST_FIELDS, true);
+
+    if (result.error && isMissingColumnError(result.error, 'color')) {
+        result = await runQuery('id, process_id, name, order_index, required_documents, is_critical', true);
+        if (!result.error) {
+            return (result.data || []).map(s => ({ ...s, color: null }));
+        }
+    }
+
+    if (!result.error && (result.data?.length ?? 0) > 0) {
+        return result.data || [];
+    }
+
+    if (result.error) throw result.error;
+
+    // Fallback: etapas legacy sin app_name
+    result = await runQuery(STAGE_LIST_FIELDS, false);
+    if (result.error && isMissingColumnError(result.error, 'color')) {
+        result = await runQuery('id, process_id, name, order_index, required_documents, is_critical', false);
+        if (!result.error) {
+            return (result.data || []).map(s => ({ ...s, color: null }));
+        }
+    }
+
+    if (result.error) throw result.error;
+    return result.data || [];
+}
+
+async function updateStageRecord(
+    processId: string,
+    stageId: string,
+    fields: {
+        name: string;
+        order_index: number;
+        required_documents: unknown;
+        is_critical?: boolean;
+        color?: string | null;
+    }
+) {
+    const payload: Record<string, unknown> = {
+        name: fields.name,
+        order_index: fields.order_index,
+        required_documents: fields.required_documents,
+    };
+    if (fields.color !== undefined) payload.color = fields.color;
+    if (fields.is_critical !== undefined) payload.is_critical = fields.is_critical;
+
+    let { data, error } = await supabase
+        .from('stages')
+        .update(payload)
+        .eq('id', stageId)
+        .eq('process_id', processId)
+        .select('id, color');
+
+    if (error && fields.color !== undefined && isMissingColumnError(error, 'color')) {
+        const { color: _c, ...withoutColor } = payload;
+        ({ data, error } = await supabase
+            .from('stages')
+            .update(withoutColor)
+            .eq('id', stageId)
+            .eq('process_id', processId)
+            .select('id'));
+        if (!error) {
+            throw new Error(
+                'La columna color no existe en stages. Ejecuta MIGRATION_ADD_STAGE_COLOR.sql en Supabase y recarga el esquema (Settings → API → Reload schema).'
+            );
+        }
+    }
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+        throw new Error(`No se pudo actualizar la etapa "${fields.name}". Verifica permisos en Supabase.`);
+    }
+
+    if (fields.color !== undefined && fields.color !== null) {
+        const savedColor = (data[0] as { color?: string | null }).color;
+        if (savedColor !== fields.color) {
+            console.warn(
+                `Color de etapa "${fields.name}" no persistió en la tabla stages (esperado: ${fields.color}, guardado: ${savedColor ?? 'null'}). Se usará bulkConfig como respaldo.`
+            );
+        }
+    }
+}
+
+async function persistStageOptionalFields(
+    stageId: string,
+    fields: { is_critical?: boolean; color?: string | null }
+) {
+    if (fields.is_critical !== undefined) {
+        const { error } = await supabase
+            .from('stages')
+            .update({ is_critical: fields.is_critical })
+            .eq('id', stageId)
+            .eq('app_name', APP_NAME);
+
+        if (error && !isMissingColumnError(error, 'is_critical')) {
+            console.warn(`Error actualizando is_critical para stage ${stageId}:`, error);
+        }
+    }
+
+    if (fields.color !== undefined) {
+        const { error } = await supabase
+            .from('stages')
+            .update({ color: fields.color })
+            .eq('id', stageId)
+            .eq('app_name', APP_NAME);
+
+        if (error && !isMissingColumnError(error, 'color')) {
+            console.warn(`Error actualizando color para stage ${stageId}:`, error);
+        } else if (error && isMissingColumnError(error, 'color')) {
+            console.warn('⚠️ La columna color no existe en stages. Ejecuta MIGRATION_ADD_STAGE_COLOR.sql');
+        }
+    }
+}
 
 // Convertir de DB a tipo de aplicación
 function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any[] = [], attachments: any[] = []): Process {
+    const bulkConfig = dbProcess.bulk_config
+        ? (typeof dbProcess.bulk_config === 'string' ? JSON.parse(dbProcess.bulk_config) : dbProcess.bulk_config)
+        : undefined;
+
+    const mappedStages = stages.map(s => ({
+        id: s.id,
+        name: s.name,
+        requiredDocuments: s.required_documents || undefined,
+        isCritical: s.is_critical === true || s.is_critical === 1 || s.is_critical === 'true',
+        color: s.color ?? undefined,
+    }));
+
     return {
         id: dbProcess.id,
         title: dbProcess.title,
         description: dbProcess.description || '',
-        stages: stages.map(s => ({
-            id: s.id,
-            name: s.name,
-            requiredDocuments: s.required_documents || undefined,
-            isCritical: s.is_critical === true || s.is_critical === 1 || s.is_critical === 'true',
-        })),
+        stages: applyStageColorsFromBulkConfig(mappedStages, bulkConfig),
         salaryRange: dbProcess.salary_range,
         experienceLevel: dbProcess.experience_level,
         seniority: dbProcess.seniority,
@@ -52,7 +225,7 @@ function dbToProcess(dbProcess: any, stages: any[] = [], documentCategories: any
             updatedAt: dbProcess.client.updated_at,
         } : undefined,
         isBulkProcess: dbProcess.is_bulk_process === true || dbProcess.is_bulk_process === 1,
-        bulkConfig: dbProcess.bulk_config ? (typeof dbProcess.bulk_config === 'string' ? JSON.parse(dbProcess.bulk_config) : dbProcess.bulk_config) : undefined,
+        bulkConfig,
         hiredCandidateIds: dbProcess.hired_candidate_ids || undefined,
         closedAt: dbProcess.closed_at || undefined,
     };
@@ -85,55 +258,20 @@ function processToDb(process: Partial<Process>): any {
     return dbProcess;
 }
 
-const processBaseSelectWithClient = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at';
-const processBaseSelect = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
-
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-function isTransientSupabaseError(error: any): boolean {
-    const status = error?.status || error?.statusCode;
-    const message = (error?.message || error?.details || '').toLowerCase();
-    return status >= 500 || message.includes('timeout') || message.includes('temporarily') || message.includes('connection');
-}
-
-function isColumnSchemaError(error: any): boolean {
-    const message = (error?.message || error?.details || '').toLowerCase();
-    return error?.code === '42703' ||
-        error?.code === 'PGRST116' ||
-        message.includes('client_id') ||
-        message.includes('column') ||
-        message.includes('schema cache');
-}
-
-async function fetchProcessesBase(includeClientId: boolean): Promise<{ data: any[]; error: any }> {
-    const selectColumns = includeClientId ? processBaseSelectWithClient : processBaseSelect;
-    let lastError: any = null;
-
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        const result = await supabase
-            .from('processes')
-            .select(selectColumns)
-            .eq('app_name', APP_NAME)
-            .eq('is_bulk_process', false)
-            .order('created_at', { ascending: false })
-            .limit(200);
-
-        if (!result.error) {
-            return { data: result.data || [], error: null };
-        }
-
-        lastError = { ...result.error, status: result.status };
-        if (!isTransientSupabaseError(lastError) || attempt === 2) {
-            break;
-        }
-
-        await wait(400 * (attempt + 1));
-    }
-
-    return { data: [], error: lastError };
-}
-
 export const processesApi = {
+    /** Conteo rápido solo desde Supabase (sin Google Drive) */
+    async getAttachmentsCountDb(processId: string): Promise<number> {
+        const { count, error } = await supabase
+            .from('attachments')
+            .select('*', { count: 'exact', head: true })
+            .eq('process_id', processId)
+            .eq('app_name', APP_NAME)
+            .is('candidate_id', null);
+
+        if (error) throw error;
+        return count || 0;
+    },
+
     // Obtener solo el conteo de attachments de un proceso (sin cargar los datos)
     // Incluye archivos de la base de datos y archivos en Google Drive (excluyendo carpetas de candidatos)
     async getAttachmentsCount(processId: string, processFolderId?: string, googleDriveConfig?: any): Promise<number> {
@@ -227,18 +365,39 @@ export const processesApi = {
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
     async getAll(includeAttachments: boolean = false): Promise<Process[]> {
         // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
-        // Nota: client_id puede no existir si la migración no se ha ejecutado.
+        // Nota: client_id puede no existir si la migración no se ha ejecutado, por lo que lo manejamos con try-catch
         let processes: any[] = [];
         let error: any = null;
-
-        let result = await fetchProcessesBase(true);
-        if (result.error && isColumnSchemaError(result.error)) {
-            console.warn('⚠️ Columna client_id no disponible, cargando procesos sin ese campo');
-            result = await fetchProcessesBase(false);
+        
+        try {
+            const result = await supabase
+                .from('processes')
+                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at')
+                .eq('app_name', APP_NAME) // Filtrar solo procesos de esta app
+                .eq('is_bulk_process', false) // Excluir procesos masivos (se gestionan en otra sección)
+                .order('created_at', { ascending: false })
+                .limit(200); // Reducir límite para reducir egress
+            
+            // Verificar si hubo error de columna faltante directamente aquí
+            if (result.error && (result.error.message?.includes('client_id') || result.error.message?.includes('column') || result.error.code === 'PGRST116')) {
+                console.warn('⚠️ Columna client_id no existe, cargando procesos sin ese campo');
+                const fallbackResult = await supabase
+                    .from('processes')
+                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
+                    .eq('app_name', APP_NAME)
+                    .eq('is_bulk_process', false)
+                    .order('created_at', { ascending: false })
+                    .limit(200);
+                
+                processes = fallbackResult.data || [];
+                error = fallbackResult.error;
+            } else {
+                processes = result.data || [];
+                error = result.error;
+            }
+        } catch (err: any) {
+            error = err;
         }
-
-        processes = result.data || [];
-        error = result.error;
         
         if (error) throw error;
         if (!processes || processes.length === 0) return [];
@@ -246,14 +405,8 @@ export const processesApi = {
         // 2. Obtener todos los IDs de procesos
         const processIds = processes.map(p => p.id);
 
-        // 3. Cargar todas las relaciones en batch (solo campos necesarios)
+        // 3. Cargar categorías (y attachments opcional) en batch
         const queries: Promise<any>[] = [
-            supabase
-                .from('stages')
-                .select('id, process_id, name, order_index, required_documents, is_critical')
-                .in('process_id', processIds)
-                .eq('app_name', APP_NAME) // Filtrar solo stages de esta app
-                .order('order_index'),
             supabase
                 .from('document_categories')
                 .select('id, process_id, name, description, required')
@@ -276,37 +429,35 @@ export const processesApi = {
         }
 
         // Ejecutar queries con manejo de errores individual para que si una falla, las otras continúen
-        let stagesResult: any = { data: [] };
+        let stages: any[] = [];
         let categoriesResult: any = { data: [] };
         let attachmentsResult: any = { data: [] };
-        
+
+        try {
+            stages = await fetchStagesBatch(processIds);
+        } catch (error) {
+            console.warn('⚠️ Error cargando stages, continuando sin stages:', error);
+        }
+
         try {
             const results = await Promise.allSettled(queries);
-            
-            // stages
+
             if (results[0].status === 'fulfilled') {
-                stagesResult = results[0].value;
+                categoriesResult = results[0].value;
             } else {
-                console.warn('⚠️ Error cargando stages, continuando sin stages:', results[0].reason);
+                console.warn('⚠️ Error cargando document_categories, continuando sin categorías:', results[0].reason);
             }
-            
-            // document_categories
-            if (results[1].status === 'fulfilled') {
-                categoriesResult = results[1].value;
-            } else {
-                console.warn('⚠️ Error cargando document_categories, continuando sin categorías:', results[1].reason);
-            }
-            
-            // attachments
-            if (results[2].status === 'fulfilled') {
-                attachmentsResult = results[2].value;
-            } else {
-                console.warn('⚠️ Error cargando attachments, continuando sin attachments:', results[2].reason);
+
+            if (results[1]?.status === 'fulfilled') {
+                attachmentsResult = results[1].value;
+            } else if (results[1]?.status === 'rejected') {
+                console.warn('⚠️ Error cargando attachments, continuando sin attachments:', results[1].reason);
             }
         } catch (error) {
             console.error('Error ejecutando queries de relaciones:', error);
-            // Continuar con arrays vacíos
         }
+
+        const stagesResult = { data: stages };
 
         // 4. Agrupar relaciones por process_id en memoria
         const stagesByProcessId = new Map<string, any[]>();
@@ -367,12 +518,12 @@ export const processesApi = {
         if (!process) return null;
 
         const [stages, categories, attachments] = await Promise.all([
-            supabase.from('stages').select('*').eq('process_id', id).eq('app_name', APP_NAME).order('order_index'),
+            fetchStagesByProcessId(id),
             supabase.from('document_categories').select('*').eq('process_id', id).eq('app_name', APP_NAME),
             supabase.from('attachments').select('*').eq('process_id', id).is('candidate_id', null).eq('app_name', APP_NAME),
         ]);
 
-        return dbToProcess(process, stages.data || [], categories.data || [], attachments.data || []);
+        return dbToProcess(process, stages, categories.data || [], attachments.data || []);
     },
 
     // Cerrar proceso seleccionando candidatos contratados
@@ -483,6 +634,7 @@ export const processesApi = {
                 order_index: index,
                 required_documents: stage.requiredDocuments || null,
                 is_critical: stage.isCritical || false,
+                color: stage.color || null,
                 app_name: APP_NAME, // Asegurar que siempre se asigne el app_name
             }));
             
@@ -516,37 +668,23 @@ export const processesApi = {
                     
                     if (insertedStages2) {
                         for (let i = 0; i < processData.stages.length && i < insertedStages2.length; i++) {
-                            if (processData.stages[i].isCritical) {
-                                try {
-                                    await supabase
-                                        .from('stages')
-                                        .update({ is_critical: true })
-                                        .eq('id', insertedStages2[i].id);
-                                } catch (err) {
-                                    // Ignorar si falla
-                                }
-                            }
+                            await persistStageOptionalFields(insertedStages2[i].id, {
+                                is_critical: processData.stages[i].isCritical || false,
+                                color: processData.stages[i].color || null,
+                            });
                         }
                     }
                 } else {
                     throw stagesError;
                 }
             } else if (insertedStages) {
-                // Si el insert funcionó pero algunos stages no tienen is_critical correcto, actualizar
                 for (let i = 0; i < processData.stages.length && i < insertedStages.length; i++) {
-                    const shouldBeCritical = processData.stages[i].isCritical || false;
                     const insertedStage = insertedStages.find(s => s.order_index === i);
-                    if (insertedStage && shouldBeCritical) {
-                        // Verificar y actualizar si es necesario
-                        try {
-                            await supabase
-                                .from('stages')
-                                .update({ is_critical: true })
-                                .eq('id', insertedStage.id);
-                        } catch (err) {
-                            // Ignorar si falla
-                        }
-                    }
+                    if (!insertedStage) continue;
+                    await persistStageOptionalFields(insertedStage.id, {
+                        is_critical: processData.stages[i].isCritical || false,
+                        color: processData.stages[i].color || null,
+                    });
                 }
             }
         }
@@ -665,74 +803,48 @@ export const processesApi = {
 
         // Actualizar stages si se proporcionan
         if (processData.stages) {
-            // Obtener stages existentes de la base de datos
-            const { data: existingStages, error: fetchError } = await supabase
-                .from('stages')
-                .select('id, name, order_index, required_documents, is_critical')
-                .eq('process_id', id)
-                .eq('app_name', APP_NAME)
-                .order('order_index');
-            
-            if (fetchError) {
-                console.error('Error obteniendo stages existentes:', fetchError);
-                throw fetchError;
-            }
-            
-            const existingStagesMap = new Map((existingStages || []).map(s => [s.id, s]));
-            const newStagesMap = new Map(processData.stages.map((s, index) => [s.id, { ...s, order_index: index }]));
-            
-            // Separar stages en: actualizar, insertar, y eliminar
-            const stagesToUpdate: Array<{ id: string; name: string; order_index: number; required_documents: any; is_critical: boolean }> = [];
-            const stagesToInsert: Array<{ process_id: string; name: string; order_index: number; required_documents: any; is_critical: boolean }> = [];
+            const existingStages = await fetchStagesByProcessId(id);
+            const existingStagesMap = new Map(existingStages.map(s => [s.id, s]));
+
+            const stagesToUpdate: Array<{ id: string; name: string; order_index: number; required_documents: any; is_critical: boolean; color: string | null }> = [];
+            const stagesToInsert: Array<{ process_id: string; name: string; order_index: number; required_documents: any; is_critical: boolean; color: string | null }> = [];
             const stagesToDelete: string[] = [];
-            
-            // Identificar qué hacer con cada stage existente
-            existingStagesMap.forEach((existingStage, stageId) => {
-                const newStage = newStagesMap.get(stageId);
-                if (newStage) {
-                    const existingIsCritical = existingStage.is_critical || false;
-                    const newIsCritical = newStage.isCritical || false;
-                    
-                    // Stage existe en ambos, actualizar si cambió
-                    if (newStage.name !== existingStage.name || 
-                        JSON.stringify(newStage.requiredDocuments || []) !== JSON.stringify(existingStage.required_documents || []) ||
-                        newIsCritical !== existingIsCritical) {
-                        stagesToUpdate.push({
-                            id: stageId,
-                            name: newStage.name,
-                            order_index: newStage.order_index,
-                            required_documents: newStage.requiredDocuments || null,
-                            is_critical: newIsCritical,
-                        });
-                    } else if (newStage.order_index !== existingStage.order_index) {
-                        // Solo cambió el orden, pero mantener otros valores
-                        stagesToUpdate.push({
-                            id: stageId,
-                            name: existingStage.name,
-                            order_index: newStage.order_index,
-                            required_documents: existingStage.required_documents,
-                            is_critical: existingIsCritical,
-                        });
-                    }
-                } else {
-                    // Stage ya no está en la lista nueva, marcar para eliminar
-                    stagesToDelete.push(stageId);
-                }
-            });
-            
-            // Identificar stages nuevos (que no tienen ID o tienen ID temporal)
+
+            const existingByName = new Map(
+                existingStages.map(s => [String(s.name || '').trim().toLowerCase(), s])
+            );
+            const resolvedIncomingIds = new Set<string>();
+
             processData.stages.forEach((stage, index) => {
-                // Si el ID empieza con "new-" o "temp-" o no existe en la BD, es nuevo
-                // También verificar que no esté ya en stagesToUpdate para evitar duplicados
-                const isInUpdateList = stagesToUpdate.some(s => s.id === stage.id);
-                if ((!stage.id || stage.id.startsWith('new-') || stage.id.startsWith('temp-') || !existingStagesMap.has(stage.id)) && !isInUpdateList) {
+                const byId = stage.id ? existingStagesMap.get(stage.id) : undefined;
+                const byName = existingByName.get(stage.name.trim().toLowerCase());
+                const existing = byId || byName;
+
+                if (existing) {
+                    resolvedIncomingIds.add(existing.id);
+                    stagesToUpdate.push({
+                        id: existing.id,
+                        name: stage.name,
+                        order_index: index,
+                        required_documents: stage.requiredDocuments || null,
+                        is_critical: stage.isCritical || false,
+                        color: stage.color ?? null,
+                    });
+                } else {
                     stagesToInsert.push({
                         process_id: id,
                         name: stage.name,
                         order_index: index,
                         required_documents: stage.requiredDocuments || null,
                         is_critical: stage.isCritical || false,
+                        color: stage.color ?? null,
                     });
+                }
+            });
+
+            existingStagesMap.forEach((_existing, stageId) => {
+                if (!resolvedIncomingIds.has(stageId)) {
+                    stagesToDelete.push(stageId);
                 }
             });
             
@@ -748,62 +860,22 @@ export const processesApi = {
                     .from('stages')
                     .update({ order_index: tempUpdate.temp_order })
                     .eq('id', tempUpdate.id)
-                    .eq('app_name', APP_NAME);
-                
+                    .eq('process_id', id);
+
                 if (tempError) {
                     console.error(`Error actualizando order_index temporal para stage ${tempUpdate.id}:`, tempError);
                     throw tempError;
                 }
             }
-            
-            // Ahora actualizar stages existentes con los valores finales
+
             for (const stage of stagesToUpdate) {
-                // Primero actualizar campos estándar (que siempre existen)
-                const standardUpdate: any = {
+                await updateStageRecord(id, stage.id, {
                     name: stage.name,
                     order_index: stage.order_index,
                     required_documents: stage.required_documents,
-                };
-                
-                const { error: updateError } = await supabase
-                    .from('stages')
-                    .update(standardUpdate)
-                    .eq('id', stage.id)
-                    .eq('app_name', APP_NAME);
-                
-                if (updateError) {
-                    console.error(`Error actualizando stage ${stage.id}:`, updateError);
-                    throw updateError;
-                }
-                
-                // Intentar actualizar is_critical por separado (la columna puede no existir aún)
-                if (stage.is_critical !== undefined) {
-                    try {
-                        const { error: criticalError } = await supabase
-                            .from('stages')
-                            .update({ is_critical: stage.is_critical })
-                            .eq('id', stage.id)
-                            .eq('app_name', APP_NAME);
-                        
-                        if (criticalError) {
-                            // Si el error es porque la columna no existe, solo loguear y continuar
-                            const isColumnError = criticalError.message?.includes('is_critical') || 
-                                                 criticalError.message?.includes('schema cache') ||
-                                                 criticalError.message?.includes('column') ||
-                                                 criticalError.code === '42703';
-                            
-                            if (isColumnError) {
-                                console.warn(`⚠️ La columna is_critical no existe en la tabla stages. Agrega esta columna para que las etapas críticas persistan.`);
-                            } else {
-                                // Para otros errores, solo loguear pero continuar
-                                console.warn(`Error actualizando is_critical para stage ${stage.id}:`, criticalError);
-                            }
-                        }
-                    } catch (err: any) {
-                        // Ignorar errores de columna faltante, continuar con el siguiente stage
-                        console.warn(`No se pudo actualizar is_critical para stage ${stage.id}`);
-                    }
-                }
+                    is_critical: stage.is_critical,
+                    color: stage.color,
+                });
             }
             
             // Insertar nuevos stages (sin is_critical primero)
@@ -826,32 +898,15 @@ export const processesApi = {
                     throw insertError;
                 }
                 
-                // Ahora intentar actualizar is_critical por separado para cada stage insertado
+                // Ahora intentar actualizar is_critical y color por separado para cada stage insertado
                 if (insertedStages) {
                     for (const insertedStage of insertedStages) {
                         const originalStage = stagesToInsert.find(s => s.order_index === insertedStage.order_index);
-                        if (originalStage && originalStage.is_critical) {
-                            try {
-                                const { error: criticalError } = await supabase
-                                    .from('stages')
-                                    .update({ is_critical: true })
-                                    .eq('id', insertedStage.id)
-                                    .eq('app_name', APP_NAME);
-                                
-                                if (criticalError) {
-                                    const isColumnError = criticalError.message?.includes('is_critical') || 
-                                                         criticalError.message?.includes('schema cache') ||
-                                                         criticalError.message?.includes('column') ||
-                                                         criticalError.code === '42703';
-                                    if (isColumnError) {
-                                        console.warn('⚠️ La columna is_critical no existe en la tabla stages.');
-                                    }
-                                }
-                            } catch (err) {
-                                // Ignorar errores de columna faltante
-                                console.warn('No se pudo guardar is_critical para un stage nuevo');
-                            }
-                        }
+                        if (!originalStage) continue;
+                        await persistStageOptionalFields(insertedStage.id, {
+                            is_critical: originalStage.is_critical,
+                            color: originalStage.color,
+                        });
                     }
                 }
             }
@@ -1106,23 +1161,23 @@ export const processesApi = {
                 .eq('is_bulk_process', true) // Solo procesos masivos
                 .order('created_at', { ascending: false });
             
-            processes = result.data || [];
-            error = result.error;
-        } catch (err: any) {
-            // Si falla porque is_bulk_process no existe, intentar sin ese campo
-            if (err.message?.includes('is_bulk_process') || err.message?.includes('column') || err.code === 'PGRST116') {
-                console.warn('⚠️ Columna is_bulk_process no existe, cargando todos los procesos');
-                const result = await supabase
+            // Verificar si hubo error de columna faltante directamente aquí
+            if (result.error && (result.error.message?.includes('client_id') || result.error.message?.includes('is_bulk_process') || result.error.message?.includes('column') || result.error.code === 'PGRST116')) {
+                console.warn('⚠️ Columna client_id o is_bulk_process no existe, cargando con fallback');
+                const fallbackResult = await supabase
                     .from('processes')
-                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, bulk_config, hired_candidate_ids, closed_at, created_at')
+                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, bulk_config, hired_candidate_ids, closed_at, created_at')
                     .eq('app_name', APP_NAME)
                     .order('created_at', { ascending: false });
                 
+                processes = fallbackResult.data || [];
+                error = fallbackResult.error;
+            } else {
                 processes = result.data || [];
                 error = result.error;
-            } else {
-                error = err;
             }
+        } catch (err: any) {
+            error = err;
         }
         
         if (error) throw error;
@@ -1131,28 +1186,21 @@ export const processesApi = {
         // Obtener todos los IDs de procesos
         const processIds = processes.map(p => p.id);
 
-        // Cargar todas las relaciones en batch
-        const queries: Promise<any>[] = [
-            supabase
-                .from('stages')
-                .select('id, process_id, name, order_index, required_documents, is_critical')
-                .in('process_id', processIds)
-                .eq('app_name', APP_NAME)
-                .order('process_id, order_index'),
-            supabase
-                .from('document_categories')
-                .select('id, process_id, name, description, required')
-                .in('process_id', processIds)
-                .eq('app_name', APP_NAME),
-        ];
+        // Cargar stages y categorías en batch
+        let stages: any[] = [];
+        try {
+            stages = await fetchStagesBatch(processIds);
+        } catch (error) {
+            console.warn('⚠️ Error cargando stages de procesos masivos:', error);
+        }
 
-        const [stagesResult, categoriesResult] = await Promise.all(queries);
+        const { data: documentCategories, error: categoriesError } = await supabase
+            .from('document_categories')
+            .select('id, process_id, name, description, required')
+            .in('process_id', processIds)
+            .eq('app_name', APP_NAME);
 
-        if (stagesResult.error) throw stagesResult.error;
-        if (categoriesResult.error) throw categoriesResult.error;
-
-        const stages = stagesResult.data || [];
-        const documentCategories = categoriesResult.data || [];
+        if (categoriesError) throw categoriesError;
 
         // Agrupar stages y categorías por process_id
         const stagesByProcessId = new Map<string, any[]>();
@@ -1179,6 +1227,18 @@ export const processesApi = {
             categoriesByProcessId.get(p.id) || [],
             [] // Attachments se cargan lazy
         ));
+    },
+
+    /** Procesos regulares + masivos (para estado global: panel, candidatos, reportes). */
+    async getAllIncludingBulk(includeAttachments: boolean = false): Promise<Process[]> {
+        const [regular, bulk] = await Promise.all([
+            this.getAll(includeAttachments),
+            this.getAllBulkProcesses().catch(err => {
+                console.warn('⚠️ No se pudieron cargar procesos masivos:', err);
+                return [] as Process[];
+            }),
+        ]);
+        return [...regular, ...bulk];
     },
 };
 

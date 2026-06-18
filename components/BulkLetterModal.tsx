@@ -131,9 +131,7 @@ export const BulkLetterModal: React.FC<{ candidateIds: string[]; onClose: () => 
                         SalarioAcordadoLetras: cand.agreedSalaryInWords || '',
                         Fechaemision: fechaEmision,
                         fechaEmision: fechaEmision,
-                        FechaEmision: fechaEmision,
                         fechaemision: fechaEmision,
-                        FechaEmision: fechaEmision,
                         ...data,
                     };
                     

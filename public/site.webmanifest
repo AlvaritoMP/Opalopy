@@ -1,0 +1,26 @@
+{
+  "name": "Opalopy",
+  "short_name": "Opalopy",
+  "description": "Sistema de reclutamiento y selección de personal",
+  "icons": [
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#2563eb",
+  "background_color": "#f9fafb",
+  "display": "standalone"
+}

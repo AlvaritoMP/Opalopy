@@ -81,6 +81,10 @@ BEGIN
     END IF;
 END $$;
 
+-- Permisos de tabla: sin esto, anon/authenticated no puede leer/escribir aunque RLS permita filas
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.clients TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.clients TO authenticated;
+
 -- Función para actualizar updated_at automáticamente
 CREATE OR REPLACE FUNCTION update_clients_updated_at()
 RETURNS TRIGGER AS $$
@@ -91,17 +95,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger para actualizar updated_at
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_trigger
-        WHERE tgname = 'trigger_update_clients_updated_at'
-          AND tgrelid = 'public.clients'::regclass
-    ) THEN
-        CREATE TRIGGER trigger_update_clients_updated_at
-            BEFORE UPDATE ON clients
-            FOR EACH ROW
-            EXECUTE FUNCTION update_clients_updated_at();
-    END IF;
-END $$;
+DROP TRIGGER IF EXISTS trigger_update_clients_updated_at ON clients;
+CREATE TRIGGER trigger_update_clients_updated_at
+    BEFORE UPDATE ON clients
+    FOR EACH ROW
+    EXECUTE FUNCTION update_clients_updated_at();
