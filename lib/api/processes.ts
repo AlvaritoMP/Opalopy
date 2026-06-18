@@ -33,10 +33,11 @@ async function fetchProcessRows(
     limit?: number
 ): Promise<{ rows: any[]; bulkColumnAvailable: boolean }> {
     const variants = [
-        { fields: PROCESS_SELECT_FULL, useBulkFilter: true, bulkColumnAvailable: true },
-        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: true, bulkColumnAvailable: true },
-        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: false, bulkColumnAvailable: true },
-        { fields: PROCESS_SELECT_LEGACY, useBulkFilter: false, bulkColumnAvailable: false },
+        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: false, bulkColumnAvailable: true, useOrder: false },
+        { fields: PROCESS_SELECT_LEGACY, useBulkFilter: false, bulkColumnAvailable: false, useOrder: false },
+        { fields: PROCESS_SELECT_FULL, useBulkFilter: true, bulkColumnAvailable: true, useOrder: true },
+        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: true, bulkColumnAvailable: true, useOrder: true },
+        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: false, bulkColumnAvailable: true, useOrder: true },
     ];
 
     let lastError: any = null;
@@ -45,8 +46,11 @@ async function fetchProcessRows(
         let query = supabase
             .from('processes')
             .select(variant.fields)
-            .eq('app_name', APP_NAME)
-            .order('created_at', { ascending: false });
+            .eq('app_name', APP_NAME);
+
+        if (variant.useOrder) {
+            query = query.order('created_at', { ascending: false });
+        }
 
         if (variant.useBulkFilter) {
             query = mode === 'regular'

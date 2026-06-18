@@ -5,6 +5,18 @@ import { getSettings } from '../settings';
 import { debugLog, debugWarn } from '../debugLog';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000000';
+const DEFAULT_DISPLAY_NAME = 'ATS Alfa Oro';
+
+function resolveDisplayName(dbSettings: any): string {
+    const display = typeof dbSettings.app_name_display === 'string' ? dbSettings.app_name_display.trim() : '';
+    if (display) return display;
+
+    const legacyName = typeof dbSettings.app_name === 'string' ? dbSettings.app_name.trim() : '';
+    if (!legacyName || legacyName === APP_NAME || legacyName === 'Opalo ATS') {
+        return DEFAULT_DISPLAY_NAME;
+    }
+    return legacyName;
+}
 
 // Convertir de DB a tipo de aplicación
 function dbToSettings(dbSettings: any): AppSettings {
@@ -13,7 +25,7 @@ function dbToSettings(dbSettings: any): AppSettings {
         fileStorage: dbSettings.file_storage_config || { provider: 'None', connected: false },
         googleDrive: dbSettings.google_drive_config || undefined,
         currencySymbol: dbSettings.currency_symbol || '$',
-        appName: dbSettings.app_name_display || dbSettings.app_name || 'Opalopy',
+        appName: resolveDisplayName(dbSettings),
         logoUrl: dbSettings.logo_url || '',
         poweredByLogoUrl: dbSettings.powered_by_logo_url || undefined,
         customLabels: dbSettings.custom_labels || {},
@@ -123,7 +135,7 @@ export const settingsApi = {
                                 database: { apiUrl: '', apiToken: '' },
                                 fileStorage: { provider: 'None', connected: false },
                                 currencySymbol: '$',
-                                appName: APP_NAME,
+                                appName: DEFAULT_DISPLAY_NAME,
                                 logoUrl: '',
                                 customLabels: {},
                             } as AppSettings;
@@ -170,7 +182,7 @@ export const settingsApi = {
                 database: { apiUrl: '', apiToken: '' },
                 fileStorage: { provider: 'None', connected: false },
                 currencySymbol: '$',
-                appName: APP_NAME,
+                appName: DEFAULT_DISPLAY_NAME,
                 logoUrl: '',
                 customLabels: {},
             } as AppSettings;
@@ -187,7 +199,7 @@ export const settingsApi = {
                 database: { apiUrl: '', apiToken: '' },
                 fileStorage: { provider: 'None', connected: false },
                 currencySymbol: '$',
-                appName: APP_NAME,
+                appName: DEFAULT_DISPLAY_NAME,
                 logoUrl: '',
                 customLabels: {},
             } as AppSettings;

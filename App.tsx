@@ -208,7 +208,7 @@ const LoginPage: React.FC = () => {
                 <div className="w-full max-w-sm p-8 space-y-6 bg-white rounded-xl shadow-lg">
                     <div className="text-center">
                         {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-12 mx-auto mb-4 object-contain" />}
-                        <h1 className="text-3xl font-bold text-gray-900">{state.settings?.appName || 'Opalopy'}</h1>
+                        <h1 className="text-3xl font-bold text-gray-900">{state.settings?.appName || 'ATS Alfa Oro'}</h1>
                         <p className="mt-2 text-sm text-gray-600">Please sign in to your account</p>
                     </div>
                     {sessionExpiredInfo && (
@@ -347,7 +347,7 @@ const Sidebar: React.FC = () => {
                     {!isCollapsed && (
                          <div className="flex items-center overflow-hidden">
                             {state.settings?.logoUrl && <img src={state.settings.logoUrl} alt="Logo" className="h-8 mr-2 object-contain" />}
-                            <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'Opalopy'}</span>
+                            <span className="font-bold text-xl text-gray-800 truncate">{state.settings?.appName || 'ATS Alfa Oro'}</span>
                         </div>
                     )}
                     <button 

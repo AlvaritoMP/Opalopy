@@ -21,7 +21,7 @@ export const initialSettings: AppSettings = {
         connected: false,
     },
     currencySymbol: '$',
-    appName: 'Opalopy',
+    appName: 'ATS Alfa Oro',
     logoUrl: '',
     poweredByLogoUrl: undefined,
     customLabels: {},
