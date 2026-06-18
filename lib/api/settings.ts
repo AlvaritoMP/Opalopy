@@ -13,7 +13,7 @@ function dbToSettings(dbSettings: any): AppSettings {
         fileStorage: dbSettings.file_storage_config || { provider: 'None', connected: false },
         googleDrive: dbSettings.google_drive_config || undefined,
         currencySymbol: dbSettings.currency_symbol || '$',
-        appName: dbSettings.app_name || 'Opalopy',
+        appName: dbSettings.app_name_display || dbSettings.app_name || 'Opalopy',
         logoUrl: dbSettings.logo_url || '',
         poweredByLogoUrl: dbSettings.powered_by_logo_url || undefined,
         customLabels: dbSettings.custom_labels || {},
@@ -70,7 +70,7 @@ function settingsToDb(settings: Partial<AppSettings>): any {
     if (settings.fileStorage !== undefined) dbSettings.file_storage_config = settings.fileStorage;
     if (settings.googleDrive !== undefined) dbSettings.google_drive_config = settings.googleDrive;
     if (settings.currencySymbol !== undefined) dbSettings.currency_symbol = settings.currencySymbol;
-    if (settings.appName !== undefined) dbSettings.app_name = settings.appName;
+    if (settings.appName !== undefined) dbSettings.app_name_display = settings.appName;
     if (settings.logoUrl !== undefined) dbSettings.logo_url = settings.logoUrl;
     if (settings.poweredByLogoUrl !== undefined) dbSettings.powered_by_logo_url = settings.poweredByLogoUrl;
     if (settings.customLabels !== undefined) dbSettings.custom_labels = settings.customLabels;
@@ -92,7 +92,7 @@ export const settingsApi = {
     // Obtener configuración (solo de esta app)
     async get(): Promise<AppSettings> {
         try {
-            // Intentar primero con filtro por app_name
+            // Intentar primero con filtro por app_name (tenant real de esta app)
             const { data, error } = await supabase
                 .from('app_settings')
                 .select('*')
@@ -143,6 +143,20 @@ export const settingsApi = {
             // Si encontramos datos con filtro, usarlos
             if (data) {
                 return mergeWithLocalSettings(dbToSettings(data));
+            }
+
+            // Algunas instalaciones históricas usaban app_name como nombre visible
+            // ("ATS Alfa Oro") y no como tenant. Recuperamos ese único registro por ID
+            // para no perder logo/nombre tras el deploy.
+            const { data: legacyData, error: legacyError } = await supabase
+                .from('app_settings')
+                .select('*')
+                .eq('id', SETTINGS_ID)
+                .maybeSingle();
+
+            if (!legacyError && legacyData) {
+                console.warn('⚠️ Settings encontrados por ID legacy; usando configuración histórica');
+                return mergeWithLocalSettings(dbToSettings(legacyData));
             }
             
             // Si no hay datos, intentar usar backup local antes de valores por defecto
@@ -265,7 +279,7 @@ export const settingsApi = {
         }
         
         // Separar campos opcionales que pueden no existir en el esquema
-        const { candidate_sources, provinces, districts, interview_locations, powered_by_logo_url, ...standardFields } = mergedDbData;
+        const { candidate_sources, provinces, districts, interview_locations, powered_by_logo_url, app_name_display, ...standardFields } = mergedDbData;
         
         // No permitir cambiar app_name
         delete standardFields.app_name;
@@ -312,6 +326,7 @@ export const settingsApi = {
         if (districts !== undefined) optionalFields.districts = districts;
         if (interview_locations !== undefined) optionalFields.interview_locations = interview_locations;
         if (powered_by_logo_url !== undefined) optionalFields.powered_by_logo_url = powered_by_logo_url;
+        if (app_name_display !== undefined) optionalFields.app_name_display = app_name_display;
         
         if (Object.keys(optionalFields).length > 0) {
                 const { error: optionalError } = await supabase

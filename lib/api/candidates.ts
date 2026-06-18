@@ -49,7 +49,7 @@ async function fetchStandardProcessIds(): Promise<string[] | null> {
         .or('is_bulk_process.eq.false,is_bulk_process.is.null');
 
     if (error) {
-        if (isMissingColumnError(error)) return null;
+        if (isMissingColumnError(error) || error.code === 'PGRST116' || error.code === 'PGRST200') return null;
         throw error;
     }
     return (data || []).map(row => row.id as string);

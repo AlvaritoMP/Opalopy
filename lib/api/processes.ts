@@ -4,6 +4,9 @@ import { APP_NAME } from '../appConfig';
 import { applyStageColorsFromBulkConfig } from '../stageColors';
 
 const STAGE_LIST_FIELDS = 'id, process_id, name, order_index, required_documents, is_critical, color';
+const PROCESS_SELECT_FULL = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
+const PROCESS_SELECT_NO_CLIENT = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
+const PROCESS_SELECT_LEGACY = 'id, title, description, salary_range, experience_level, seniority, flyer_url, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, created_at';
 
 function isMissingColumnError(error: any, columnName?: string): boolean {
     if (!error) return false;
@@ -13,6 +16,67 @@ function isMissingColumnError(error: any, columnName?: string): boolean {
         return columnName ? message.includes(columnName.toLowerCase()) : true;
     }
     return false;
+}
+
+function shouldRetryProcessList(error: any, status?: number): boolean {
+    if (!error) return false;
+    if (status && status >= 500) return true;
+    return isMissingColumnError(error) ||
+        error.code === 'PGRST116' ||
+        error.code === 'PGRST200' ||
+        error.code === 'PGRST201' ||
+        error.code === 'PGRST204';
+}
+
+async function fetchProcessRows(
+    mode: 'regular' | 'bulk',
+    limit?: number
+): Promise<{ rows: any[]; bulkColumnAvailable: boolean }> {
+    const variants = [
+        { fields: PROCESS_SELECT_FULL, useBulkFilter: true, bulkColumnAvailable: true },
+        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: true, bulkColumnAvailable: true },
+        { fields: PROCESS_SELECT_NO_CLIENT, useBulkFilter: false, bulkColumnAvailable: true },
+        { fields: PROCESS_SELECT_LEGACY, useBulkFilter: false, bulkColumnAvailable: false },
+    ];
+
+    let lastError: any = null;
+
+    for (const variant of variants) {
+        let query = supabase
+            .from('processes')
+            .select(variant.fields)
+            .eq('app_name', APP_NAME)
+            .order('created_at', { ascending: false });
+
+        if (variant.useBulkFilter) {
+            query = mode === 'regular'
+                ? query.or('is_bulk_process.eq.false,is_bulk_process.is.null')
+                : query.eq('is_bulk_process', true);
+        }
+
+        if (limit) query = query.limit(limit);
+
+        const result = await query;
+        if (!result.error) {
+            let rows = result.data || [];
+            if (!variant.useBulkFilter && variant.bulkColumnAvailable) {
+                rows = rows.filter(row => mode === 'regular'
+                    ? row.is_bulk_process !== true
+                    : row.is_bulk_process === true);
+            }
+            if (mode === 'bulk' && !variant.bulkColumnAvailable) {
+                rows = [];
+            }
+            return { rows, bulkColumnAvailable: variant.bulkColumnAvailable };
+        }
+
+        lastError = { ...result.error, status: result.status };
+        if (!shouldRetryProcessList(result.error, result.status)) {
+            break;
+        }
+    }
+
+    throw lastError;
 }
 
 async function fetchStagesByProcessId(processId: string) {
@@ -365,41 +429,8 @@ export const processesApi = {
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
     async getAll(includeAttachments: boolean = false): Promise<Process[]> {
         // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
-        // Nota: client_id puede no existir si la migración no se ha ejecutado, por lo que lo manejamos con try-catch
-        let processes: any[] = [];
-        let error: any = null;
-        
-        try {
-            const result = await supabase
-                .from('processes')
-                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, created_at')
-                .eq('app_name', APP_NAME) // Filtrar solo procesos de esta app
-                .eq('is_bulk_process', false) // Excluir procesos masivos (se gestionan en otra sección)
-                .order('created_at', { ascending: false })
-                .limit(200); // Reducir límite para reducir egress
-            
-            // Verificar si hubo error de columna faltante directamente aquí
-            if (result.error && (result.error.message?.includes('client_id') || result.error.message?.includes('column') || result.error.code === 'PGRST116')) {
-                console.warn('⚠️ Columna client_id no existe, cargando procesos sin ese campo');
-                const fallbackResult = await supabase
-                    .from('processes')
-                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
-                    .eq('app_name', APP_NAME)
-                    .eq('is_bulk_process', false)
-                    .order('created_at', { ascending: false })
-                    .limit(200);
-                
-                processes = fallbackResult.data || [];
-                error = fallbackResult.error;
-            } else {
-                processes = result.data || [];
-                error = result.error;
-            }
-        } catch (err: any) {
-            error = err;
-        }
-        
-        if (error) throw error;
+        // Usa fallbacks para esquemas históricos o schema cache desactualizado en Supabase.
+        const { rows: processes } = await fetchProcessRows('regular', 200);
         if (!processes || processes.length === 0) return [];
 
         // 2. Obtener todos los IDs de procesos
@@ -1150,37 +1181,7 @@ export const processesApi = {
 
     // Obtener todos los procesos masivos (solo procesos masivos)
     async getAllBulkProcesses(): Promise<Process[]> {
-        let processes: any[] = [];
-        let error: any = null;
-        
-        try {
-            const result = await supabase
-                .from('processes')
-                .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at')
-                .eq('app_name', APP_NAME)
-                .eq('is_bulk_process', true) // Solo procesos masivos
-                .order('created_at', { ascending: false });
-            
-            // Verificar si hubo error de columna faltante directamente aquí
-            if (result.error && (result.error.message?.includes('client_id') || result.error.message?.includes('is_bulk_process') || result.error.message?.includes('column') || result.error.code === 'PGRST116')) {
-                console.warn('⚠️ Columna client_id o is_bulk_process no existe, cargando con fallback');
-                const fallbackResult = await supabase
-                    .from('processes')
-                    .select('id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, bulk_config, hired_candidate_ids, closed_at, created_at')
-                    .eq('app_name', APP_NAME)
-                    .order('created_at', { ascending: false });
-                
-                processes = fallbackResult.data || [];
-                error = fallbackResult.error;
-            } else {
-                processes = result.data || [];
-                error = result.error;
-            }
-        } catch (err: any) {
-            error = err;
-        }
-        
-        if (error) throw error;
+        const { rows: processes } = await fetchProcessRows('bulk');
         if (!processes || processes.length === 0) return [];
 
         // Obtener todos los IDs de procesos
