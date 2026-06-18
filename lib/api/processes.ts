@@ -34,34 +34,40 @@ async function fetchProcessFlyerRows(processIds: string[]): Promise<Array<{ id: 
     if (processIds.length === 0) return [];
 
     const rows: Array<{ id: string; flyer_url?: string; flyer_position?: string }> = [];
+    const uniqueIds = [...new Set(processIds)];
 
-    for (let offset = 0; offset < processIds.length; offset += 50) {
-        const chunk = processIds.slice(offset, offset + 50);
-
+    const fetchOne = async (processId: string) => {
         let result = await supabase
             .from('processes')
             .select('id, app_name, flyer_url, flyer_position')
-            .in('id', chunk);
+            .eq('id', processId)
+            .maybeSingle();
 
         if (result.error && isMissingColumnError(result.error, 'flyer_position')) {
             result = await supabase
                 .from('processes')
                 .select('id, app_name, flyer_url')
-                .in('id', chunk);
+                .eq('id', processId)
+                .maybeSingle();
         }
 
         if (result.error) {
-            console.warn('⚠️ No se pudieron cargar portadas de procesos:', result.error);
-            continue;
+            console.warn(`⚠️ No se pudo cargar portada del proceso ${processId}:`, result.error);
+            return;
         }
 
-        rows.push(...((result.data || [])
-            .filter(row => !row.app_name || row.app_name === APP_NAME)
-            .map(row => ({
-                id: row.id as string,
-                flyer_url: row.flyer_url as string | undefined,
-                flyer_position: (row as any).flyer_position as string | undefined,
-            }))));
+        const row = result.data as any;
+        if (!row || (row.app_name && row.app_name !== APP_NAME)) return;
+
+        rows.push({
+            id: row.id,
+            flyer_url: row.flyer_url || undefined,
+            flyer_position: row.flyer_position || undefined,
+        });
+    };
+
+    for (let offset = 0; offset < uniqueIds.length; offset += 3) {
+        await Promise.all(uniqueIds.slice(offset, offset + 3).map(fetchOne));
     }
 
     return rows;
