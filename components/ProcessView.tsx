@@ -154,18 +154,14 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
         setProcessWorkMode(processId, state.currentUser?.id, 'kanban');
     }, [processId, state.currentUser?.id]);
 
-    // Cargar conteo de attachments al montar el componente (incluyendo archivos de Google Drive)
+    // Cargar conteo de adjuntos desde BD. Evitamos consultar Google Drive al abrir el proceso
+    // porque en clientes con histórico grande puede volver lenta la vista.
     React.useEffect(() => {
         const loadAttachmentsCount = async () => {
             if (!processId || !process) return;
             try {
                 const { processesApi } = await import('../lib/api/processes');
-                const googleDriveConfig = state.settings?.googleDrive;
-                const count = await processesApi.getAttachmentsCount(
-                    processId, 
-                    process.googleDriveFolderId,
-                    googleDriveConfig
-                );
+                const count = await processesApi.getAttachmentsCountDb(processId);
                 setAttachmentsCount(count);
             } catch (error) {
                 console.warn('Error cargando conteo de attachments del proceso:', error);
@@ -176,7 +172,7 @@ export const ProcessView: React.FC<ProcessViewProps> = ({ processId }) => {
             }
         };
         loadAttachmentsCount();
-    }, [processId, process?.id, process?.googleDriveFolderId, state.settings?.googleDrive]);
+    }, [processId, process?.id]);
     
     // Filtrar candidatos según el rol del usuario
     // Admin y Recruiter ven todos los candidatos

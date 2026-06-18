@@ -44,12 +44,21 @@ function mergeWithLocalSettings(settingsFromRemote: AppSettings): AppSettings {
     const local = getSettings();
     if (!local) return settingsFromRemote;
 
+    const preferRemoteString = (remoteValue: string | undefined, localValue: string | undefined): string =>
+        remoteValue && remoteValue.trim() !== '' ? remoteValue : (localValue || '');
+
     return {
-        ...settingsFromRemote,
         ...local,
+        ...settingsFromRemote,
+        appName: preferRemoteString(settingsFromRemote.appName, local.appName),
+        logoUrl: preferRemoteString(settingsFromRemote.logoUrl, local.logoUrl),
+        poweredByLogoUrl: preferRemoteString(settingsFromRemote.poweredByLogoUrl, local.poweredByLogoUrl) || undefined,
+        googleDrive: settingsFromRemote.googleDrive || local.googleDrive,
+        fileStorage: settingsFromRemote.fileStorage || local.fileStorage,
+        database: settingsFromRemote.database || local.database,
         customLabels: {
-            ...(settingsFromRemote.customLabels || {}),
             ...(local.customLabels || {}),
+            ...(settingsFromRemote.customLabels || {}),
         },
     };
 }

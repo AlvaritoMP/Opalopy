@@ -541,7 +541,7 @@ const App: React.FC = () => {
                 // Cargar candidatos activos y descartados (aunque estén archivados) para el Dashboard
                 const [processes, activeCandidates, users, interviewEvents, settings] = await Promise.all([
                     loadWithEmptyFallback(() => processesApi.getAllIncludingBulk(false), initialProcesses, 'processes', true), // regulares + masivos
-                    loadWithEmptyFallback(() => candidatesApi.getAll(false, true), initialCandidates, 'candidates', true), // false = no archived, true = include relations (post-its, comments, history)
+                    loadWithEmptyFallback(() => candidatesApi.getAll(false, false), initialCandidates, 'candidates', true), // Carga ligera; relaciones bajo demanda
                     loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
                     loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
                     loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
@@ -1017,8 +1017,8 @@ const App: React.FC = () => {
         },
         reloadCandidates: async () => {
             try {
-                // Cargar relaciones (post-its, comments, history) para que persistan después de recargar
-                const activeCandidates = await candidatesApi.getAll(false, true); // false = no archived, true = include relations
+                // Carga ligera: evita traer historial/comentarios/post-its de todos los procesos en cada recarga.
+                const activeCandidates = await candidatesApi.getAll(false, false);
                 
                 // Preservar candidatos archivados existentes en el estado (incluyendo descartados)
                 let preservedArchived: Candidate[] = [];
@@ -1035,58 +1035,8 @@ const App: React.FC = () => {
                     };
                 });
                 
-                // Verificar y corregir carpetas de Google Drive si está conectado (en background, sin bloquear)
-                const googleDriveConfig = state.settings?.googleDrive;
-                const isGoogleDriveConnected = googleDriveConfig?.connected && googleDriveConfig?.accessToken;
-                if (isGoogleDriveConnected && googleDriveConfig) {
-                    // Ejecutar verificación en background sin bloquear la UI
-                    (async () => {
-                        try {
-                            const { googleDriveService } = await import('./lib/googleDrive');
-                            googleDriveService.initialize(googleDriveConfig);
-                            
-                            // Usar los candidatos combinados (activos + archivados preservados)
-                            const allCandidates = [...activeCandidates, ...preservedArchived];
-                            
-                            // Verificar carpetas de candidatos que tienen proceso con carpeta configurada
-                            for (const candidate of allCandidates) {
-                                if (candidate.googleDriveFolderId) continue;
-                                const process = state.processes.find(p => p.id === candidate.processId);
-                                if (!process?.googleDriveFolderId) continue;
-                                
-                                try {
-                                    const folder = await googleDriveService.getOrCreateCandidateFolder(
-                                        candidate.name,
-                                        process.googleDriveFolderId,
-                                        candidate.googleDriveFolderId
-                                    );
-                                    
-                                    if (folder.id !== candidate.googleDriveFolderId) {
-                                        await candidatesApi.update(candidate.id, {
-                                            ...candidate,
-                                            googleDriveFolderId: folder.id,
-                                            googleDriveFolderName: folder.name,
-                                        }, state.currentUser?.id);
-                                        
-                                        setState(s => ({
-                                            ...s,
-                                            candidates: s.candidates.map(c => 
-                                                c.id === candidate.id 
-                                                    ? { ...c, googleDriveFolderId: folder.id, googleDriveFolderName: folder.name }
-                                                    : c
-                                            )
-                                        }));
-                                    }
-                                } catch (error) {
-                                    console.warn(`Error verificando carpeta para candidato ${candidate.name}:`, error);
-                                }
-                            }
-                        } catch (error) {
-                            console.warn('Error verificando carpetas de Google Drive:', error);
-                            // No mostrar error al usuario, es una verificación en background
-                        }
-                    })();
-                }
+                // No verificamos carpetas de Google Drive en una recarga general: en bases históricas
+                // puede disparar cientos de llamadas externas y ralentizar la apertura de procesos.
             } catch (error: any) {
                 console.error('Error reloading candidates:', error);
                 
