@@ -4,8 +4,8 @@ import { APP_NAME } from '../appConfig';
 import { applyStageColorsFromBulkConfig } from '../stageColors';
 
 const STAGE_LIST_FIELDS = 'id, process_id, name, order_index, required_documents, is_critical, color';
-const PROCESS_SELECT_MIN = 'id, app_name, title, description, status, vacancies, flyer_url, flyer_position, created_at, is_bulk_process';
-const PROCESS_SELECT_MIN_LEGACY = 'id, app_name, title, description, status, vacancies, flyer_url, created_at';
+const PROCESS_SELECT_MIN = 'id, app_name, title, description, status, vacancies, created_at, is_bulk_process';
+const PROCESS_SELECT_MIN_LEGACY = 'id, app_name, title, description, status, vacancies, created_at';
 const PROCESS_SELECT_FULL = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, client_id, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
 const PROCESS_SELECT_NO_CLIENT = 'id, title, description, salary_range, experience_level, seniority, flyer_url, flyer_position, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, published_date, need_identified_date, is_bulk_process, bulk_config, hired_candidate_ids, closed_at, created_at';
 const PROCESS_SELECT_LEGACY = 'id, title, description, salary_range, experience_level, seniority, flyer_url, service_order_code, start_date, end_date, status, vacancies, google_drive_folder_id, google_drive_folder_name, created_at';
