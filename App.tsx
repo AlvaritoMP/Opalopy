@@ -508,6 +508,14 @@ const App: React.FC = () => {
                 }
                 
                 debugLog('Loading data from Supabase...');
+
+                const localSettings = getSettings() || initialSettings;
+                setState(s => ({
+                    ...s,
+                    settings: localSettings,
+                    loading: false,
+                    dashboardCacheLoading: false,
+                }));
                 
                 // Cargar datos de Supabase con timeouts y mejor manejo de errores
                 const loadWithEmptyFallback = async <T,>(
@@ -520,7 +528,7 @@ const App: React.FC = () => {
                         const result = await Promise.race([
                             apiCall(),
                             new Promise<T>((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 30000)
+                                setTimeout(() => reject(new Error('Timeout')), 12000)
                             )
                         ]);
                         debugLog(`Loaded ${name} from Supabase`);
@@ -536,29 +544,14 @@ const App: React.FC = () => {
                     }
                 };
 
-                // Para procesos, candidatos y usuarios, usar arrays vacíos si falla (no datos de prueba)
-                // Solo settings puede usar fallback porque puede venir de localStorage
-                // Cargar candidatos activos y descartados (aunque estén archivados) para el Dashboard
-                const [processes, activeCandidates, users, interviewEvents, settings] = await Promise.all([
+                // Carga crítica: permite levantar la app aunque candidatos/eventos estén lentos.
+                const [processes, users, settings] = await Promise.all([
                     loadWithEmptyFallback(() => processesApi.getAllIncludingBulk(false), initialProcesses, 'processes', true), // regulares + masivos
-                    loadWithEmptyFallback(() => candidatesApi.getAll(false, false), initialCandidates, 'candidates', true), // Carga ligera; relaciones bajo demanda
                     loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
-                    loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
-                    loadWithEmptyFallback(() => settingsApi.get(), getSettings() || initialSettings, 'settings', false),
+                    loadWithEmptyFallback(() => settingsApi.get(), localSettings, 'settings', false),
                 ]);
-                
-                // Cargar candidatos descartados (aunque estén archivados) para el conteo del Dashboard
-                let discardedCandidates: Candidate[] = [];
-                try {
-                    discardedCandidates = await candidatesApi.getDiscardedArchived();
-                } catch (error) {
-                    console.warn('Error cargando candidatos descartados:', error);
-                }
-                
-                // Combinar candidatos activos y descartados, evitando duplicados
-                const activeIds = new Set(activeCandidates.map(c => c.id));
-                const newDiscarded = discardedCandidates.filter(c => !activeIds.has(c.id));
-                const candidates = [...activeCandidates, ...newDiscarded];
+                const candidates: Candidate[] = [];
+                const interviewEvents: InterviewEvent[] = [];
 
                 let sessionUserId = getStoredUserId();
                 if (sessionUserId && isSessionExpired()) {
@@ -645,23 +638,39 @@ const App: React.FC = () => {
                     lastViewedBulkProcessId: bulkProcessId,
                     dashboardFilters: loadDashboardFilters(currentUser?.id),
                     dashboardCache: null,
-                    dashboardCacheLoading: true,
+                    dashboardCacheLoading: false,
                     loading: false,
                     toasts: [],
                 });
 
-                void fetchDashboardData(filteredProcesses, users, currentUser)
-                    .then(cache => {
+                void (async () => {
+                    try {
+                        const [activeCandidates, discardedCandidates, loadedInterviewEvents] = await Promise.all([
+                            loadWithEmptyFallback(() => candidatesApi.getAll(false, false), initialCandidates, 'candidates', true),
+                            candidatesApi.getDiscardedArchived().catch(error => {
+                                console.warn('Error cargando candidatos descartados:', error);
+                                return [] as Candidate[];
+                            }),
+                            loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
+                        ]);
+
+                        const activeIds = new Set(activeCandidates.map(c => c.id));
+                        const newDiscarded = discardedCandidates.filter(c => !activeIds.has(c.id));
+                        const loadedCandidates = [...activeCandidates, ...newDiscarded];
+                        const allowedProcessIds = new Set(filteredProcesses.map(p => p.id));
+                        const finalCandidates = currentUser?.allowedClientIds != null
+                            ? loadedCandidates.filter(c => allowedProcessIds.has(c.processId))
+                            : loadedCandidates;
+
                         setState(s => ({
                             ...s,
-                            dashboardCache: cache,
-                            dashboardCacheLoading: false,
+                            candidates: finalCandidates,
+                            interviewEvents: loadedInterviewEvents,
                         }));
-                    })
-                    .catch(err => {
-                        console.warn('Error precargando panel de datos:', err);
-                        setState(s => ({ ...s, dashboardCacheLoading: false }));
-                    });
+                    } catch (err) {
+                        console.warn('Error cargando datos secundarios:', err);
+                    }
+                })();
             } catch (error) {
                 console.error('Error loading data:', error);
                 // NO usar datos de prueba como fallback - usar arrays vacíos
