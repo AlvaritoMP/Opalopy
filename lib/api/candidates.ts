@@ -313,10 +313,13 @@ export const candidatesApi = {
             let query = supabase
                 .from('candidates')
                 .select(selectFields)
-                .eq('app_name', APP_NAME)
-                .order('created_at', { ascending: false });
+                .eq('app_name', APP_NAME);
 
-            query = applyStandardProcessFilter(query, standardProcessIds) ?? query;
+            // En bases históricas, un IN muy largo + ORDER BY puede agotar el statement timeout.
+            // Si hay muchos procesos, cargamos candidatos por app y filtramos procesos masivos en vistas masivas.
+            if (standardProcessIds === null || standardProcessIds.length <= 20) {
+                query = applyStandardProcessFilter(query, standardProcessIds) ?? query;
+            }
 
             if (!includeArchived) {
                 query = query.eq('archived', false);
