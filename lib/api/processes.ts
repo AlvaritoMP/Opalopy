@@ -30,6 +30,43 @@ function shouldRetryProcessList(error: any, status?: number): boolean {
         error.code === 'PGRST204';
 }
 
+async function fetchProcessFlyerRows(processIds: string[]): Promise<Array<{ id: string; flyer_url?: string; flyer_position?: string }>> {
+    if (processIds.length === 0) return [];
+
+    const rows: Array<{ id: string; flyer_url?: string; flyer_position?: string }> = [];
+
+    for (let offset = 0; offset < processIds.length; offset += 50) {
+        const chunk = processIds.slice(offset, offset + 50);
+
+        let result = await supabase
+            .from('processes')
+            .select('id, app_name, flyer_url, flyer_position')
+            .in('id', chunk);
+
+        if (result.error && isMissingColumnError(result.error, 'flyer_position')) {
+            result = await supabase
+                .from('processes')
+                .select('id, app_name, flyer_url')
+                .in('id', chunk);
+        }
+
+        if (result.error) {
+            console.warn('⚠️ No se pudieron cargar portadas de procesos:', result.error);
+            continue;
+        }
+
+        rows.push(...((result.data || [])
+            .filter(row => !row.app_name || row.app_name === APP_NAME)
+            .map(row => ({
+                id: row.id as string,
+                flyer_url: row.flyer_url as string | undefined,
+                flyer_position: (row as any).flyer_position as string | undefined,
+            }))));
+    }
+
+    return rows;
+}
+
 async function fetchProcessRows(
     mode: 'regular' | 'bulk',
     limit?: number
@@ -334,6 +371,17 @@ function processToDb(process: Partial<Process>): any {
 }
 
 export const processesApi = {
+    async getFlyersByIds(processIds: string[]): Promise<Record<string, { flyerUrl?: string; flyerPosition?: string }>> {
+        const rows = await fetchProcessFlyerRows([...new Set(processIds)]);
+        return rows.reduce<Record<string, { flyerUrl?: string; flyerPosition?: string }>>((acc, row) => {
+            acc[row.id] = {
+                flyerUrl: row.flyer_url || undefined,
+                flyerPosition: row.flyer_position || undefined,
+            };
+            return acc;
+        }, {});
+    },
+
     /** Conteo rápido solo desde Supabase (sin Google Drive) */
     async getAttachmentsCountDb(processId: string): Promise<number> {
         const { count, error } = await supabase

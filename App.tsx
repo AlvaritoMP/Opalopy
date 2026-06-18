@@ -643,6 +643,22 @@ const App: React.FC = () => {
                     toasts: [],
                 });
 
+                void processesApi.getFlyersByIds(filteredProcesses.map(p => p.id))
+                    .then(flyersById => {
+                        if (Object.keys(flyersById).length === 0) return;
+                        setState(s => ({
+                            ...s,
+                            processes: s.processes.map(process => ({
+                                ...process,
+                                flyerUrl: flyersById[process.id]?.flyerUrl || process.flyerUrl,
+                                flyerPosition: flyersById[process.id]?.flyerPosition || process.flyerPosition,
+                            })),
+                        }));
+                    })
+                    .catch(error => {
+                        console.warn('No se pudieron cargar portadas de procesos:', error);
+                    });
+
                 void (async () => {
                     try {
                         const [activeCandidates, discardedCandidates, loadedInterviewEvents] = await Promise.all([
