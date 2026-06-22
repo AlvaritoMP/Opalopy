@@ -470,6 +470,8 @@ export interface Candidate {
     /** Fecha de alta / última actualización del registro en sistema */
     createdAt?: string;
     criticalStageReviewedAt?: string; // Fecha en que un usuario revisó el candidato en etapa crítica (para ocultar alertas)
+    /** true cuando post-its, comentarios e historial ya se cargaron desde BD */
+    relationsLoaded?: boolean;
     metadataIa?: string; // Resumen/metadata generado por IA (OpenAI)
     scoreIa?: number; // Score/puntuación generado por IA
     psycholaboralEvaluation?: PsycholaboralEvaluation;

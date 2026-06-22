@@ -165,6 +165,26 @@ export const CandidateDetailsModal: React.FC<{ candidate: Candidate, onClose: ()
         loadAttachmentsCount();
     }, [initialCandidate.id]);
 
+    // Cargar relaciones completas si el candidato solo tiene datos de lista (sin post-its/comentarios/historial)
+    React.useEffect(() => {
+        let cancelled = false;
+        const existing = state.candidates.find(c => c.id === initialCandidate.id) ?? initialCandidate;
+        if (existing.relationsLoaded) return;
+
+        void (async () => {
+            try {
+                const { candidatesApi } = await import('../lib/api/candidates');
+                const full = await candidatesApi.getById(initialCandidate.id);
+                if (cancelled || !full) return;
+                actions.hydrateCandidateDetail(full);
+            } catch (error) {
+                console.warn('Error cargando detalle del candidato:', error);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [initialCandidate.id, actions]);
+
     // Sincronizar archivos de Google Drive con attachments al abrir el modal
     // Usar useRef para evitar múltiples sincronizaciones y preservar categorías
     const hasSyncedDriveRef = React.useRef<boolean>(false);

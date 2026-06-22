@@ -35,6 +35,19 @@ function isMissingInterviewColumnError(error: { message?: string; code?: string 
     return error.code === '42703' || msg.includes('created_by') || msg.includes('schema cache');
 }
 
+const CALENDAR_MONTHS_BACK = 6;
+const CALENDAR_MONTHS_FORWARD = 12;
+
+export function getInterviewCalendarWindow(): { start: Date; end: Date } {
+    const start = new Date();
+    start.setMonth(start.getMonth() - CALENDAR_MONTHS_BACK);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setMonth(end.getMonth() + CALENDAR_MONTHS_FORWARD);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+}
+
 export const interviewsApi = {
     // Obtener todos los eventos (solo de esta app)
     async getAll(): Promise<InterviewEvent[]> {
@@ -49,17 +62,27 @@ export const interviewsApi = {
     },
 
     // Obtener eventos por rango de fechas (solo de esta app)
-    async getByDateRange(start: Date, end: Date): Promise<InterviewEvent[]> {
-        const { data, error } = await supabase
+    async getByDateRange(start: Date, end: Date, abortSignal?: AbortSignal): Promise<InterviewEvent[]> {
+        let query = supabase
             .from('interview_events')
             .select('*')
             .eq('app_name', APP_NAME) // Filtrar solo eventos de esta app
             .gte('start_time', start.toISOString())
             .lte('start_time', end.toISOString())
             .order('start_time', { ascending: true });
+
+        if (abortSignal) query = query.abortSignal(abortSignal);
+
+        const { data, error } = await query;
         
         if (error) throw error;
         return (data || []).map(dbToInterviewEvent);
+    },
+
+    /** Ventana ±6/12 meses para arranque y calendario (no tabla completa) */
+    async getForAppWindow(abortSignal?: AbortSignal): Promise<InterviewEvent[]> {
+        const { start, end } = getInterviewCalendarWindow();
+        return this.getByDateRange(start, end, abortSignal);
     },
 
     // Crear evento (con app_name automático)

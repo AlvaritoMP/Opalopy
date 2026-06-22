@@ -32,6 +32,12 @@ export const Forms: React.FC = () => {
     const [bulkProcesses, setBulkProcesses] = useState<Process[]>([]);
 
     useEffect(() => {
+        if (state.formIntegrations.length === 0) {
+            void actions.loadFormIntegrations();
+        }
+    }, [state.formIntegrations.length, actions]);
+
+    useEffect(() => {
         const loadBulkProcesses = async () => {
             try {
                 const processes = await processesApi.getAllBulkProcesses();

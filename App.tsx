@@ -23,6 +23,7 @@ import {
     type DashboardFiltersState,
 } from './lib/dashboardFilters';
 import { fetchDashboardData, type DashboardDataCache } from './lib/dashboardDataLoader';
+import { runWithAbortTimeout, isAbortOrTimeoutError } from './lib/runWithAbortTimeout';
 import { Dashboard } from './components/Dashboard';
 import { ProcessList } from './components/ProcessList';
 import { ProcessView } from './components/ProcessView';
@@ -102,6 +103,8 @@ interface AppActions {
     setLastViewedBulkProcessId: (processId: string) => void;
     setDashboardFilters: (patch: Partial<DashboardFiltersState>) => void;
     loadDashboardCache: (force?: boolean) => Promise<void>;
+    loadFormIntegrations: () => Promise<void>;
+    hydrateCandidateDetail: (candidate: Candidate) => void;
     showToast: (message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => string;
     hideToast: (id: string) => void;
     setProcessEmbeddedTableActive: (active: boolean) => void;
@@ -391,10 +394,8 @@ const Sidebar: React.FC = () => {
                         onClick={async () => {
                             const refreshToastId = actions.showToast('Actualizando datos...', 'loading', 0);
                             try {
-                                await Promise.all([
-                                    actions.reloadProcesses(),
-                                    actions.reloadCandidates()
-                                ]);
+                                await actions.reloadProcesses();
+                                await actions.reloadCandidates();
                                 actions.hideToast(refreshToastId);
                                 actions.showToast('Datos actualizados', 'success', 2000);
                             } catch (error: any) {
@@ -488,6 +489,8 @@ const App: React.FC = () => {
     // Referencia para evitar mostrar el mensaje de CORS repetidamente
     const lastCorsErrorTime = useRef<number>(0);
     const CORS_ERROR_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutos
+    const INITIAL_LOAD_TIMEOUT_MS = 30_000;
+    const BACKGROUND_LOAD_TIMEOUT_MS = 60_000;
 
     useEffect(() => {
         const loadData = async () => {
@@ -517,24 +520,24 @@ const App: React.FC = () => {
                     dashboardCacheLoading: false,
                 }));
                 
-                // Cargar datos de Supabase con timeouts y mejor manejo de errores
+                // Cargar datos de Supabase con timeout cancelable (AbortSignal) y fallbacks
                 const loadWithEmptyFallback = async <T,>(
-                    apiCall: () => Promise<T>,
+                    apiCall: (signal: AbortSignal) => Promise<T>,
                     emptyFallback: T,
                     name: string,
-                    useEmptyFallback: boolean = false
+                    useEmptyFallback: boolean = false,
+                    timeoutMs: number = INITIAL_LOAD_TIMEOUT_MS
                 ): Promise<T> => {
                     try {
-                        const result = await Promise.race([
-                            apiCall(),
-                            new Promise<T>((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 12000)
-                            )
-                        ]);
+                        const result = await runWithAbortTimeout(apiCall, timeoutMs);
                         debugLog(`Loaded ${name} from Supabase`);
                         return result;
                     } catch (error) {
-                        console.error(`❌ Failed to load ${name} from Supabase:`, error);
+                        if (isAbortOrTimeoutError(error)) {
+                            console.warn(`⚠ Timeout cargando ${name}`);
+                        } else {
+                            console.error(`❌ Failed to load ${name} from Supabase:`, error);
+                        }
                         if (useEmptyFallback) {
                             console.warn(`⚠ Using empty array for ${name} instead of fallback data`);
                             return (Array.isArray(emptyFallback) ? [] : emptyFallback) as T;
@@ -544,12 +547,39 @@ const App: React.FC = () => {
                     }
                 };
 
-                // Carga crítica: permite levantar la app aunque candidatos/eventos estén lentos.
-                const [processes, users, settings] = await Promise.all([
-                    loadWithEmptyFallback(() => processesApi.getAllIncludingBulk(false), initialProcesses, 'processes', true), // regulares + masivos
-                    loadWithEmptyFallback(() => usersApi.getAll(), initialUsers, 'users', true),
-                    loadWithEmptyFallback(() => settingsApi.get(), localSettings, 'settings', false),
-                ]);
+                const mergeCandidateRelations = (
+                    existing: Candidate[],
+                    withRelations: Candidate[],
+                    allowedProcessIds?: Set<string>
+                ): Candidate[] => {
+                    const byId = new Map(withRelations.map(c => [c.id, c]));
+                    const merged = existing.map(c => {
+                        const full = byId.get(c.id);
+                        return full ? { ...full, relationsLoaded: true } : c;
+                    });
+                    if (!allowedProcessIds) return merged;
+                    return merged.filter(c => allowedProcessIds.has(c.processId));
+                };
+
+                // Fase 1 — crítico en serie: settings → users → processes
+                const settings = await loadWithEmptyFallback(
+                    () => settingsApi.get(),
+                    localSettings,
+                    'settings',
+                    false
+                );
+                const users = await loadWithEmptyFallback(
+                    () => usersApi.getAll(),
+                    initialUsers,
+                    'users',
+                    true
+                );
+                const processes = await loadWithEmptyFallback(
+                    (signal) => processesApi.getAllIncludingBulkSequential(false, signal),
+                    initialProcesses,
+                    'processes',
+                    true
+                );
                 const candidates: Candidate[] = [];
                 const interviewEvents: InterviewEvent[] = [];
 
@@ -630,7 +660,7 @@ const App: React.FC = () => {
                     users,
                     applications: [],
                     settings,
-                    formIntegrations: await loadWithEmptyFallback(() => formIntegrationsApi.getAll(), initialFormIntegrations, 'formIntegrations', true),
+                    formIntegrations: [],
                     interviewEvents,
                     currentUser,
                     view: { type: 'dashboard' },
@@ -642,6 +672,8 @@ const App: React.FC = () => {
                     loading: false,
                     toasts: [],
                 });
+
+                const allowedProcessIds = new Set(filteredProcesses.map(p => p.id));
 
                 void processesApi.getFlyersByIds(filteredProcesses.map(p => p.id))
                     .then(flyersById => {
@@ -659,21 +691,23 @@ const App: React.FC = () => {
                         console.warn('No se pudieron cargar portadas de procesos:', error);
                     });
 
+                // Fase 2 — candidatos activos (sin relaciones), luego descartados archivados
                 void (async () => {
                     try {
-                        const [activeCandidates, discardedCandidates, loadedInterviewEvents] = await Promise.all([
-                            loadWithEmptyFallback(() => candidatesApi.getAll(false, false), initialCandidates, 'candidates', true),
-                            candidatesApi.getDiscardedArchived().catch(error => {
-                                console.warn('Error cargando candidatos descartados:', error);
-                                return [] as Candidate[];
-                            }),
-                            loadWithEmptyFallback(() => interviewsApi.getAll(), initialInterviewEvents, 'interviewEvents', true),
-                        ]);
+                        const activeCandidates = await loadWithEmptyFallback(
+                            (signal) => candidatesApi.getAll(false, false, signal),
+                            initialCandidates,
+                            'candidates',
+                            true
+                        );
+                        const discardedCandidates = await candidatesApi.getDiscardedArchived().catch(error => {
+                            console.warn('Error cargando candidatos descartados:', error);
+                            return [] as Candidate[];
+                        });
 
                         const activeIds = new Set(activeCandidates.map(c => c.id));
                         const newDiscarded = discardedCandidates.filter(c => !activeIds.has(c.id));
                         const loadedCandidates = [...activeCandidates, ...newDiscarded];
-                        const allowedProcessIds = new Set(filteredProcesses.map(p => p.id));
                         const finalCandidates = currentUser?.allowedClientIds != null
                             ? loadedCandidates.filter(c => allowedProcessIds.has(c.processId))
                             : loadedCandidates;
@@ -681,12 +715,65 @@ const App: React.FC = () => {
                         setState(s => ({
                             ...s,
                             candidates: finalCandidates,
-                            interviewEvents: loadedInterviewEvents,
                         }));
+
+                        // Fase 3 — entrevistas en ventana acotada (no tabla completa)
+                        try {
+                            const loadedInterviewEvents = await loadWithEmptyFallback(
+                                (signal) => interviewsApi.getForAppWindow(signal),
+                                initialInterviewEvents,
+                                'interviewEvents',
+                                true
+                            );
+                            setState(s => ({ ...s, interviewEvents: loadedInterviewEvents }));
+                        } catch (err) {
+                            console.warn('Error cargando entrevistas:', err);
+                        }
                     } catch (err) {
                         console.warn('Error cargando datos secundarios:', err);
                     }
                 })();
+
+                // Fase 4 — background +600 ms: candidatos con relaciones
+                window.setTimeout(() => {
+                    void (async () => {
+                        try {
+                            const withRelations = await runWithAbortTimeout(
+                                (signal) => candidatesApi.getAll(false, true, signal),
+                                BACKGROUND_LOAD_TIMEOUT_MS
+                            );
+                            setState(s => ({
+                                ...s,
+                                candidates: mergeCandidateRelations(
+                                    s.candidates,
+                                    withRelations,
+                                    currentUser?.allowedClientIds != null ? allowedProcessIds : undefined
+                                ),
+                            }));
+                        } catch (err) {
+                            if (!isAbortOrTimeoutError(err)) {
+                                console.warn('Error cargando relaciones de candidatos:', err);
+                            }
+                        }
+                    })();
+                }, 600);
+
+                // Fase 4 — background +1200 ms: form_integrations (diferido)
+                window.setTimeout(() => {
+                    void (async () => {
+                        try {
+                            const integrations = await runWithAbortTimeout(
+                                (signal) => formIntegrationsApi.getAll(signal),
+                                BACKGROUND_LOAD_TIMEOUT_MS
+                            );
+                            setState(s => ({ ...s, formIntegrations: integrations }));
+                        } catch (err) {
+                            if (!isAbortOrTimeoutError(err)) {
+                                console.warn('Error cargando integraciones de formularios:', err);
+                            }
+                        }
+                    })();
+                }, 1200);
             } catch (error) {
                 console.error('Error loading data:', error);
                 // NO usar datos de prueba como fallback - usar arrays vacíos
@@ -977,7 +1064,7 @@ const App: React.FC = () => {
         },
         reloadProcesses: async () => {
             try {
-                let processes = await processesApi.getAllIncludingBulk();
+                let processes = await processesApi.getAllIncludingBulkSequential();
                 const currentUser = state.currentUser;
                 if (currentUser?.allowedClientIds != null) {
                     const allowed = new Set(currentUser.allowedClientIds);
@@ -1042,26 +1129,44 @@ const App: React.FC = () => {
         },
         reloadCandidates: async () => {
             try {
-                // Carga ligera: evita traer historial/comentarios/post-its de todos los procesos en cada recarga.
+                // 1. Recarga rápida sin relaciones
                 const activeCandidates = await candidatesApi.getAll(false, false);
                 
                 // Preservar candidatos archivados existentes en el estado (incluyendo descartados)
-                let preservedArchived: Candidate[] = [];
                 setState(s => {
                     const archivedCandidates = s.candidates.filter(c => c.archived === true);
                     const activeIds = new Set(activeCandidates.map(c => c.id));
-                    
-                    // Mantener solo candidatos archivados que no están en los activos (para evitar duplicados)
-                    preservedArchived = archivedCandidates.filter(c => !activeIds.has(c.id));
+                    const preservedArchived = archivedCandidates.filter(c => !activeIds.has(c.id));
                     
                     return { 
                         ...s, 
                         candidates: [...activeCandidates, ...preservedArchived]
                     };
                 });
-                
-                // No verificamos carpetas de Google Drive en una recarga general: en bases históricas
-                // puede disparar cientos de llamadas externas y ralentizar la apertura de procesos.
+
+                // 2. En background: relaciones con timeout cancelable
+                void (async () => {
+                    try {
+                        const withRelations = await runWithAbortTimeout(
+                            (signal) => candidatesApi.getAll(false, true, signal),
+                            BACKGROUND_LOAD_TIMEOUT_MS
+                        );
+                        setState(s => {
+                            const byId = new Map(withRelations.map(c => [c.id, c]));
+                            return {
+                                ...s,
+                                candidates: s.candidates.map(c => {
+                                    const full = byId.get(c.id);
+                                    return full ? { ...full, relationsLoaded: true } : c;
+                                }),
+                            };
+                        });
+                    } catch (err) {
+                        if (!isAbortOrTimeoutError(err)) {
+                            console.warn('Error cargando relaciones en recarga:', err);
+                        }
+                    }
+                })();
             } catch (error: any) {
                 console.error('Error reloading candidates:', error);
                 
@@ -1556,11 +1661,28 @@ const App: React.FC = () => {
         },
         refreshInterviewEvents: async () => {
             try {
-                const events = await interviewsApi.getAll();
+                const events = await interviewsApi.getForAppWindow();
                 setState(s => ({ ...s, interviewEvents: events }));
             } catch (error) {
                 console.error('Error refreshing interview events:', error);
             }
+        },
+        loadFormIntegrations: async () => {
+            if (state.formIntegrations.length > 0) return;
+            try {
+                const integrations = await formIntegrationsApi.getAll();
+                setState(s => ({ ...s, formIntegrations: integrations }));
+            } catch (error) {
+                console.error('Error loading form integrations:', error);
+            }
+        },
+        hydrateCandidateDetail: (candidate: Candidate) => {
+            setState(s => ({
+                ...s,
+                candidates: s.candidates.map(c =>
+                    c.id === candidate.id ? { ...candidate, relationsLoaded: true } : c
+                ),
+            }));
         },
         addPostIt: async (candidateId, postItData) => {
             try {

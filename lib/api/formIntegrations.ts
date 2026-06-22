@@ -51,12 +51,16 @@ function formIntegrationToDb(integration: Partial<FormIntegration>): any {
 
 export const formIntegrationsApi = {
     // Obtener todas las integraciones
-    async getAll(): Promise<FormIntegration[]> {
-        const { data, error } = await supabase
+    async getAll(abortSignal?: AbortSignal): Promise<FormIntegration[]> {
+        let query = supabase
             .from('form_integrations')
             .select('*')
             .eq('app_name', APP_NAME)
             .order('created_at', { ascending: false });
+
+        if (abortSignal) query = query.abortSignal(abortSignal);
+
+        const { data, error } = await query;
         
         if (error) throw error;
         if (!data) return [];

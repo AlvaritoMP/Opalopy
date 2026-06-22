@@ -566,7 +566,8 @@ export const Dashboard: React.FC = () => {
 
     useEffect(() => {
         if (!dashboardCache && !dashboardCacheLoading) {
-            void actions.loadDashboardCache();
+            const timer = setTimeout(() => void actions.loadDashboardCache(), 2000);
+            return () => clearTimeout(timer);
         }
     }, [dashboardCache, dashboardCacheLoading, actions]);
 

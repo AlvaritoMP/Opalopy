@@ -75,7 +75,8 @@ async function fetchProcessFlyerRows(processIds: string[]): Promise<Array<{ id: 
 
 async function fetchProcessRows(
     mode: 'regular' | 'bulk',
-    limit?: number
+    limit?: number,
+    abortSignal?: AbortSignal
 ): Promise<{ rows: any[]; bulkColumnAvailable: boolean }> {
     const variants = [
         { fields: PROCESS_SELECT_MIN, useAppFilter: true, useBulkFilter: false, bulkColumnAvailable: true, useOrder: false },
@@ -106,6 +107,7 @@ async function fetchProcessRows(
         }
 
         if (limit) query = query.limit(limit);
+        if (abortSignal) query = query.abortSignal(abortSignal);
 
         const result = await query;
         if (!result.error) {
@@ -492,10 +494,10 @@ export const processesApi = {
     // Obtener todos los procesos con sus stages y categorías
     // OPTIMIZADO: Carga todas las relaciones en batch en lugar de N+1 queries
     // OPTIMIZADO EGRESS: Selecciona solo campos necesarios, attachments se cargan lazy
-    async getAll(includeAttachments: boolean = false): Promise<Process[]> {
+    async getAll(includeAttachments: boolean = false, abortSignal?: AbortSignal): Promise<Process[]> {
         // 1. Cargar todos los procesos (solo campos necesarios para reducir egress)
         // Usa fallbacks para esquemas históricos o schema cache desactualizado en Supabase.
-        const { rows: processes } = await fetchProcessRows('regular', 200);
+        const { rows: processes } = await fetchProcessRows('regular', 200, abortSignal);
         if (!processes || processes.length === 0) return [];
 
         // 2. Obtener todos los IDs de procesos
@@ -1245,8 +1247,8 @@ export const processesApi = {
     },
 
     // Obtener todos los procesos masivos (solo procesos masivos)
-    async getAllBulkProcesses(): Promise<Process[]> {
-        const { rows: processes } = await fetchProcessRows('bulk');
+    async getAllBulkProcesses(abortSignal?: AbortSignal): Promise<Process[]> {
+        const { rows: processes } = await fetchProcessRows('bulk', undefined, abortSignal);
         if (!processes || processes.length === 0) return [];
 
         // Obtener todos los IDs de procesos
@@ -1304,6 +1306,16 @@ export const processesApi = {
                 return [] as Process[];
             }),
         ]);
+        return [...regular, ...bulk];
+    },
+
+    /** Carga secuencial: regular primero, masivos después (menor pico de I/O al arranque). */
+    async getAllIncludingBulkSequential(includeAttachments = false, abortSignal?: AbortSignal): Promise<Process[]> {
+        const regular = await this.getAll(includeAttachments, abortSignal);
+        const bulk = await this.getAllBulkProcesses(abortSignal).catch(err => {
+            console.warn('⚠️ No se pudieron cargar procesos masivos:', err);
+            return [] as Process[];
+        });
         return [...regular, ...bulk];
     },
 };

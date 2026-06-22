@@ -55,69 +55,63 @@ export async function fetchDashboardData(
     const summaries: Record<string, ContactSummaryCandidate> = {};
     const schedulingRows: BulkSchedulingCandidateRow[] = [];
 
-    await Promise.all(
-        bulkProcessIds.map(async processId => {
-            try {
-                const process = processMap.get(processId);
-                const all = await bulkCandidatesApi.getAllCandidates(processId);
-                const candidateIds = all.map(c => c.id);
-                const [columnValuesMap, historyByCandidate] = await Promise.all([
-                    bulkCandidatesApi.loadAllBulkColumnValues(processId),
-                    bulkCandidatesApi.loadCandidateHistoryByIds(candidateIds),
-                ]);
-                for (const c of all) {
-                    const columnRow = columnValuesMap[c.id] || {};
-                    const withHistory = {
-                        ...c,
-                        history: historyByCandidate[c.id] ?? [],
-                    };
-                    const mapped = enrichBulkCandidateForDashboard(withHistory, process, columnRow);
-                    pool.push(mapped);
-                    fields[c.id] = bulkDashboardFieldExtrasFromCandidate(mapped);
-                    summaries[c.id] = {
-                        id: c.id,
-                        processId: c.processId,
-                        contactPhone: c.contactPhone,
-                        contactWhatsapp: c.contactWhatsapp,
-                        contactEmail: c.contactEmail,
-                    };
-                    schedulingRows.push({
-                        id: c.id,
-                        processId: c.processId,
-                        bulkColumnValues: {
-                            ...(c.bulkColumnValues || {}),
-                            ...columnRow,
-                        },
-                        nextInterviewAt: c.nextInterviewAt,
-                        nextInterviewerId: c.nextInterviewerId,
-                    });
-                }
-            } catch {
-                /* continuar con otros procesos */
+    for (const processId of bulkProcessIds) {
+        try {
+            const process = processMap.get(processId);
+            const all = await bulkCandidatesApi.getAllCandidates(processId);
+            const candidateIds = all.map(c => c.id);
+            const columnValuesMap = await bulkCandidatesApi.loadAllBulkColumnValues(processId);
+            const historyByCandidate = await bulkCandidatesApi.loadCandidateHistoryByIds(candidateIds);
+            for (const c of all) {
+                const columnRow = columnValuesMap[c.id] || {};
+                const withHistory = {
+                    ...c,
+                    history: historyByCandidate[c.id] ?? [],
+                };
+                const mapped = enrichBulkCandidateForDashboard(withHistory, process, columnRow);
+                pool.push(mapped);
+                fields[c.id] = bulkDashboardFieldExtrasFromCandidate(mapped);
+                summaries[c.id] = {
+                    id: c.id,
+                    processId: c.processId,
+                    contactPhone: c.contactPhone,
+                    contactWhatsapp: c.contactWhatsapp,
+                    contactEmail: c.contactEmail,
+                };
+                schedulingRows.push({
+                    id: c.id,
+                    processId: c.processId,
+                    bulkColumnValues: {
+                        ...(c.bulkColumnValues || {}),
+                        ...columnRow,
+                    },
+                    nextInterviewAt: c.nextInterviewAt,
+                    nextInterviewerId: c.nextInterviewerId,
+                });
             }
-        })
-    );
+        } catch {
+            /* continuar con otros procesos */
+        }
+    }
 
     const byProcess: Record<string, Record<string, HiredStageActor>> = {};
-    await Promise.all(
-        bulkProcessIds.map(async processId => {
-            const process = processMap.get(processId);
-            const hiringStageId = resolveHiringStageId(process);
-            if (!hiringStageId) {
-                byProcess[processId] = {};
-                return;
-            }
-            try {
-                const rows = await bulkCandidatesApi.getHiringStageActorsForProcess(
-                    processId,
-                    hiringStageId
-                );
-                byProcess[processId] = mapRawHiringMoves(rows, statsUsers);
-            } catch {
-                byProcess[processId] = {};
-            }
-        })
-    );
+    for (const processId of bulkProcessIds) {
+        const process = processMap.get(processId);
+        const hiringStageId = resolveHiringStageId(process);
+        if (!hiringStageId) {
+            byProcess[processId] = {};
+            continue;
+        }
+        try {
+            const rows = await bulkCandidatesApi.getHiringStageActorsForProcess(
+                processId,
+                hiringStageId
+            );
+            byProcess[processId] = mapRawHiringMoves(rows, statsUsers);
+        } catch {
+            byProcess[processId] = {};
+        }
+    }
 
     let contactAttempts: ContactAttempt[] = [];
     let schedulingLogs: DashboardDataCache['schedulingLogs'] = [];
@@ -138,14 +132,12 @@ export async function fetchDashboardData(
         for (const c of pool) candidateProcessIdMap.set(c.id, c.processId);
 
         try {
-            const [byProcessAttempts, byCandidates, logs, cycles] = await Promise.all([
-                contactTrackingApi.getAttemptsForProcesses(allProcessIds),
-                bulkCandidateIds.length > 0
-                    ? contactTrackingApi.getAttemptsForCandidateIds(bulkCandidateIds)
-                    : Promise.resolve([]),
-                interviewSchedulingApi.getLogsForProcesses(allProcessIds),
-                interviewSchedulingApi.getCyclesForProcesses(allProcessIds),
-            ]);
+            const byProcessAttempts = await contactTrackingApi.getAttemptsForProcesses(allProcessIds);
+            const byCandidates = bulkCandidateIds.length > 0
+                ? await contactTrackingApi.getAttemptsForCandidateIds(bulkCandidateIds)
+                : [];
+            const logs = await interviewSchedulingApi.getLogsForProcesses(allProcessIds);
+            const cycles = await interviewSchedulingApi.getCyclesForProcesses(allProcessIds);
             contactAttempts = backfillContactAttemptProcessIds(
                 mergeContactAttemptsDedupe([...byProcessAttempts, ...byCandidates]),
                 candidateProcessIdMap
