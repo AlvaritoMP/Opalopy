@@ -515,8 +515,9 @@ export const processesApi = {
             supabase
                 .from('document_categories')
                 .select('id, process_id, name, description, required')
-                .in('process_id', processIds)
-                .eq('app_name', APP_NAME), // Filtrar solo categorías de esta app
+                .in('process_id', processIds),
+            // No filtramos por app_name: process_id ya limita a procesos de esta app
+            // y el filtro extra excluía categorías heredadas (app_name nulo/histórico).
         ];
 
         // Solo cargar attachments si se solicitan explícitamente (lazy loading)
@@ -624,8 +625,9 @@ export const processesApi = {
 
         const [stages, categories, attachments] = await Promise.all([
             fetchStagesByProcessId(id),
-            supabase.from('document_categories').select('*').eq('process_id', id).eq('app_name', APP_NAME),
-            supabase.from('attachments').select('*').eq('process_id', id).is('candidate_id', null).eq('app_name', APP_NAME),
+            // process_id ya limita a esta app; sin filtro app_name para no perder datos heredados.
+            supabase.from('document_categories').select('*').eq('process_id', id),
+            supabase.from('attachments').select('*').eq('process_id', id).is('candidate_id', null),
         ]);
 
         return dbToProcess(process, stages, categories.data || [], attachments.data || []);
@@ -1269,11 +1271,12 @@ export const processesApi = {
             console.warn('⚠️ Error cargando stages de procesos masivos:', error);
         }
 
+        // process_id ya limita a procesos de esta app; sin filtro app_name para
+        // no excluir categorías heredadas (app_name nulo/histórico).
         const { data: documentCategories, error: categoriesError } = await supabase
             .from('document_categories')
             .select('id, process_id, name, description, required')
-            .in('process_id', processIds)
-            .eq('app_name', APP_NAME);
+            .in('process_id', processIds);
 
         if (categoriesError) throw categoriesError;
 
